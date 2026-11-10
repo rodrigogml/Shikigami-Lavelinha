@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import getpass
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -24,6 +25,7 @@ from setupOnmyoji import Ui, flow_choice, flow_heading, install_linux_packages, 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from onmyoji_daemon.mcp.configuration import McpConfiguration, McpConfigurationError
+from onmyoji_daemon.config_publication import apply_shared_file_mode
 from onmyoji_daemon.mcp.credentials import CredentialError, KeePassCredentialResolver
 from onmyoji_daemon.mcp.todoist import TodoistError, TodoistService
 from onmyoji_daemon.mcp.omie import OmieError, OmieService
@@ -265,7 +267,28 @@ def profile_auth(name: str, root: Path = ROOT) -> dict:
     if os.name == "nt":
         target = ask("Destino no Windows Credential Manager", target, True)
         return {"windows": {"mode": "windows_credential_manager", "target": target or ""}, "linux": {"mode": "command", "command": linux_command}}
-    return {"windows": {"mode": "windows_credential_manager", "target": target}, "linux": {"mode": "command", "command": linux_command}}
+    if shutil.which("secret-tool") and os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        linux = {"mode": "command", "command": linux_command}
+    else:
+        filename = hashlib.sha256(f"{identity}\0{name}".encode("utf-8")).hexdigest() + ".secret"
+        linux = {"mode": "protected_file", "path": str(root.resolve() / "configs" / "mcp" / "secrets" / filename)}
+    return {"windows": {"mode": "windows_credential_manager", "target": target}, "linux": linux}
+
+
+def store_protected_password(path: Path, password: str) -> None:
+    """Persiste o segredo para as duas contas autorizadas da instância."""
+    directory = path.parent
+    directory.mkdir(parents=True, exist_ok=True)
+    directory.chmod(0o2770)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags, 0o660)
+    try:
+        os.fchmod(descriptor, 0o660)
+        os.write(descriptor, password.encode("utf-8"))
+    finally:
+        os.close(descriptor)
 
 
 def save_password(name: str, auth: dict, root: Path = ROOT, password: str | None = None) -> bool:
@@ -275,6 +298,8 @@ def save_password(name: str, auth: dict, root: Path = ROOT, password: str | None
     if not password: return False
     try:
         if os.name == "nt": store_windows_password(auth["windows"]["target"], password)
+        elif auth["linux"].get("mode") == "protected_file":
+            store_protected_password(Path(auth["linux"]["path"]), password)
         else:
             identity = instance_identity(root)
             subprocess.run(["secret-tool", "store", f"--label={identity} MCP KeePass {name}", "service", "shikigami-mcp", "shikigami", identity, "profile", name], input=password + "\n", text=True, check=True, timeout=20, capture_output=True)
@@ -424,8 +449,8 @@ def create_vault_profile(config: McpConfiguration) -> None:
     database = str(config.root / "configs" / "mcp" / "vaults" / f"{name}.kdbx") if origin.startswith("Criar") else ask(f"Arquivo KDBX no {platform}", required=True)
     if not database: return
     command = scope_flatpak_to_database(command, database)
-    if not ensure_linux_secret_tool(): return
     auth = profile_auth(name, config.root)
+    if os.name != "nt" and auth.get("linux", {}).get("mode") == "command" and not ensure_linux_secret_tool(): return
     roots = ask("Raízes de entradas permitidas, separadas por ; (vazio = todas)", "")
     data["vaults"][name] = {"cli_command": command, "database": {"windows": database if platform == "windows" else "", "linux": database if platform == "linux" else ""}}
     data["profiles"][name] = {"vault": name, "allowed_entry_roots": [item.strip() for item in (roots or "").split(";") if item.strip()], "auth": auth}
@@ -442,6 +467,7 @@ def create_vault_profile(config: McpConfiguration) -> None:
             if made.returncode:
                 result(False, keepassxc_creation_error(made)); return
             if not Path(database).is_file(): result(False, "KeePassXC informou sucesso, mas o arquivo do cofre não foi criado."); return
+            apply_shared_file_mode(Path(database))
         except (OSError, subprocess.SubprocessError): result(False, "Não foi possível criar o cofre."); return
         if not save_password(name, auth, config.root, password):
             result(False, f"O cofre foi criado em {database}, mas o perfil não foi salvo.")
