@@ -1,32 +1,23 @@
-# Onmyōji
+# Lavelinha
 
-Esta é a base comum e versionada do Onmyōji. Ela fornece o daemon, os scripts de setup e os serviços MCP de integração para uma instância de Shikigami.
+## Configuração local do Shikigami
 
-## Hierarquia da instância
+O arquivo autoritativo de configuração local é `${CODEX_HOME}/env.toml`.
 
-Os arquivos da base — `onmyoji-daemon/`, `setupOnmyoji.py`, `docs/` e os recursos na raiz — pertencem ao projeto `Onmyoji`. Melhorias reutilizáveis da base devem ser desenvolvidas neste repositório e publicadas no seu remoto (`origin`). As fontes de skills específicas da instância ficam em `shikigami-skills/` e podem ser versionadas pelo repositório próprio do Shikigami.
+Referências no formato `{{env.<chave>}}` representam caminhos de chaves nesse arquivo TOML. Por exemplo:
 
-`configs/`, `skills/`, `sessions/`, `state/`, `log/`, `tmp/` e diretórios equivalentes são locais e não versionados. Nunca coloque segredos, tokens, credenciais, bancos de conversas, logs ou staging em fontes versionáveis.
+- `{{env.resources.personal_files.path}}` corresponde à chave `resources.personal_files.path`.
+- `{{env.skills.organizar-documentos.archive_subdirectory}}` corresponde à chave `skills."organizar-documentos".archive_subdirectory`.
 
-O workspace do agente é externo ao `CODEX_HOME`. Arquivos de trabalho, saídas, anexos temporários e dados de atividade devem permanecer no workspace configurado, nunca em `configs/` nem em `shikigami-skills/`.
-
-## Artefatos temporários
-
-`tmp/` é o único local temporário do repositório. Todo arquivo transitório, saída de compilação, cache ou banco de teste criado durante desenvolvimento, testes ou execução local deve ficar dentro dele; nunca crie diretórios temporários na raiz, em `configs/`, em `shikigami-skills/` ou em qualquer outra pasta do repositório. Testes devem usar `tmp_path` ou `TemporaryDirectory` já configurados para `tmp/`; não devem escolher o diretório temporário padrão do sistema nem criar caminhos próprios. Execute a suíte com `python -B -m pytest` para que o interpretador não grave bytecode fora de `tmp/`. Estado operacional persistente pertence a `configs/` ou ao workspace do Shikigami, conforme sua finalidade. `tmp/` é ignorado pelo Git e pode ser removido integralmente.
-
-## GitHub
-
-GitHub é exclusivamente o repositório remoto de versionamento. Não crie nem mantenha workflows, automações, verificações de qualidade ou qualquer dependência operacional em `.github/`; testes, validações e decisões de qualidade pertencem ao código e à execução local do projeto.
-
-Após concluir e validar cada alteração, faça imediatamente o commit e o push para o remoto deste repositório (`origin`), sem aguardar nova solicitação do usuário. O commit deve conter somente os arquivos da alteração validada.
-
-Arquivos `.proposed` fazem parte do fluxo versionado: não devem ser ignorados nem excluídos do commit enquanto aguardam avaliação. Ao criar ou atualizar uma proposta, faça o commit e o push do arquivo `.proposed` para o `origin`. A proposta só deve ser incorporada ao arquivo original após a aprovação do usuário. Depois da incorporação aprovada, exclua o arquivo `.proposed` e inclua no mesmo commit tanto a alteração do arquivo original quanto a exclusão da proposta; em seguida, faça o push desse commit.
-
-## Interface dos scripts de setup
-
-Consulte `docs/setup-interface.md` antes de criar ou alterar uma interação dos scripts de setup. A moldura `screen()` é exclusiva de menus navegáveis com opção explícita de voltar. Assistentes, perguntas internas, diagnósticos, listagens e resultados usam apresentação em fluxo, sem uma nova moldura.
-
-Escolhas enumeradas dentro de um roteiro devem usar identificadores numéricos e apresentar no prompt o número da alternativa que Enter adotará, como `Opção [2]:`. Entradas livres mostram o valor efetivo adotado por Enter; exceções semânticas devem deixar o efeito explícito, como `[vazio = todas]`. Confirmações binárias usam `S/n` ou `s/N`, com a alternativa padrão em maiúscula. `X` sempre cancela ou volta do contexto atual.
+Antes de usar uma referência:
+1. Leia o arquivo TOML autoritativo.
+2. Resolva a chave completa indicada pela referência.
+3. Substitua conceitualmente a referência pelo valor encontrado.
+4. Valide que o valor possui o tipo esperado.
+5. Para caminhos, valide que são absolutos e que o recurso existe quando a operação exigir sua existência.
+6. Nunca trate a referência textual como um caminho literal.
+7. Nunca suponha nem invente um valor ausente.
+8. Se o arquivo ou uma chave obrigatória não existir, interrompa o procedimento e informe exatamente qual chave está ausente.
 
 ## Alteração de instruções e skills
 
@@ -41,3 +32,4 @@ Ao alterar arquivos `README.md`, `AGENTS.md`, `SKILL.md` ou qualquer arquivo `.m
 	8. Quando o usuário aprovar totalmente a proposta do arquivo `.proposed`, o arquivo `.proposed` deve ser eliminado.
 	9. Se ao subir o código para o repositório existirem arquivos `.proposed` no repositório, ainda pendentes de aprovação ou descarte, avise o usuário para que pendências de edição não fiquem para trás.
 
+---
