@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import unicodedata
 import uuid
 import shutil
 from collections.abc import Callable
@@ -125,12 +126,12 @@ def instance_label(root: Path) -> str:
     return identity(root)
 
 
-def camel_name(value: str) -> str:
-    parts = [part for part in "".join(char if char.isalnum() else " " for char in value).split() if part]
-    return "".join(part[:1].upper() + part[1:] for part in parts) or "Shikigami"
+def normalized_service_name(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii").lower()
+    return re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")[:128].rstrip("-") or "shikigami"
 
 
-def default_service_name(root: Path) -> str: return f"Shikigami-{camel_name(instance_label(root))}"
+def default_service_name(root: Path) -> str: return normalized_service_name(instance_label(root))
 def default_service_description(root: Path) -> str: return f"Shikigami {instance_label(root)} Daemon"
 
 
@@ -319,9 +320,13 @@ def _systemd_unit(root: Path, executable: str, source: Path, description: str, s
     return "\n".join(["[Unit]", f"Description={description}", "Wants=network-online.target", "After=network-online.target", "", *service, "", "[Install]", "WantedBy=default.target" if scope == "user" else "WantedBy=multi-user.target", ""])
 
 
-def _systemd_verify_command(scope: str, unit: Path) -> list[str]:
+def _systemd_analyze_command(scope: str, *arguments: str | Path) -> list[str]:
     analyzer = shutil.which("systemd-analyze")
-    return [str(analyzer), *(["--user"] if scope == "user" else []), "verify", str(unit)] if analyzer else []
+    return [str(analyzer), *(["--user"] if scope == "user" else []), *(str(argument) for argument in arguments)] if analyzer else []
+
+
+def _systemd_verify_command(scope: str, unit: Path) -> list[str]:
+    return _systemd_analyze_command(scope, "verify", unit)
 
 
 def _verify_systemd_unit(root: Path, name: str, content: str, scope: str) -> tuple[bool, str]:
@@ -545,7 +550,8 @@ def service_security(root: Path, use_sudo: bool = False) -> tuple[bool, str]:
     if not info: return False, "Serviço do sistema operacional não está instalado para esta instância."
     allowed, prefix, detail = _service_elevation(info, use_sudo)
     if not allowed: return False, detail
-    value = subprocess.run([*prefix, "systemd-analyze", "security", "--no-pager", str(info["name"])], text=True, capture_output=True, check=False)
+    scope = str(info.get("scope") or "system")
+    value = subprocess.run([*prefix, *_systemd_analyze_command(scope, "security", "--no-pager", str(info["name"]))], text=True, capture_output=True, check=False)
     return value.returncode == 0, (value.stdout or value.stderr).strip()
 
 
