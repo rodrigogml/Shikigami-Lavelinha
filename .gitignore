@@ -1,6 +1,4 @@
 # Configuração do Shikigami e cofre KDBX criptografado
-/config.toml
-/*.config.toml
 /venv/
 /installation_id
 /models_cache.json
