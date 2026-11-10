@@ -1,0 +1,11 @@
+schema_version = 1
+instance_id = "f4ad4e8619484acf9d569f8f3ceb87dc"
+instance_name = "Lavelinha"
+
+[app_server]
+enabled = false
+idle_timeout_seconds = 1800
+
+[instructions]
+enabled = true
+shikigami_file = "instructions.md"

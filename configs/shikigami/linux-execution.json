@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "mode": "dedicated",
+  "identity": "Lavelinha",
+  "account": "shikigami-lavelinha",
+  "group": "shikigami-lavelinha",
+  "home": "/home/shikigami-lavelinha",
+  "installer_user": "rodrigogml",
+  "installer_access": true,
+  "workspace": "/opt/Shikigami-Lavelinha-Work",
+  "validated": true,
+  "codex_executable": "/home/shikigami-lavelinha/.local/bin/codex",
+  "python_mode": "isolated",
+  "setup_python": "/usr/bin/python3.13"
+}
