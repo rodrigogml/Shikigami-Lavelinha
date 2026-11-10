@@ -1,0 +1,20 @@
+{
+  "telegram": {
+    "enabled": false
+  },
+  "mini-apps": {
+    "enabled": false
+  },
+  "btg-payments-monitor": {
+    "enabled": false
+  },
+  "gateway": {
+    "enabled": false
+  },
+  "cloudflare-tunnel": {
+    "enabled": false
+  },
+  "task-scheduler": {
+    "enabled": false
+  }
+}

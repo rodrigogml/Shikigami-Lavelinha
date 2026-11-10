@@ -1,0 +1,24 @@
+{
+  "schema_version": 3,
+  "name": "lavelinha",
+  "description": "Shikigami Lavelinha Daemon",
+  "root": "/opt/Shikigami-Lavelinha",
+  "platform": "Linux",
+  "scope": "system",
+  "run_as_user": "shikigami-lavelinha",
+  "run_as_group": "shikigami-lavelinha",
+  "isolated": true,
+  "installer_user": "rodrigogml",
+  "installer_access": true,
+  "workspace": "/opt/Shikigami-Lavelinha-Work",
+  "home": "/home/shikigami-lavelinha",
+  "resource_limits": {
+    "cpu_quota_percent": 1900,
+    "memory_high_bytes": 30115102720,
+    "memory_max_bytes": 37643878400,
+    "memory_swap_max_bytes": 1022361600,
+    "tasks_max": 2560,
+    "io_weight": 80,
+    "private_devices": false
+  }
+}
