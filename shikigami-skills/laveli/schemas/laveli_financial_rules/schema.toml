@@ -1,0 +1,4 @@
+schema_format = 1
+id = "laveli_financial_rules"
+title = "Laveli · Regras de lançamentos financeiros"
+description = "Regras de preenchimento por categoria financeira da skill Laveli."

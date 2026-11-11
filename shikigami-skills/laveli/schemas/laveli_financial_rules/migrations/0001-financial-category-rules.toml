@@ -1,0 +1,55 @@
+schema_id = "laveli_financial_rules"
+migration_version = 1
+
+[[operations]]
+type = "create_table"
+table = "category_rules"
+operations = ["create", "get", "list", "update"]
+
+[[operations.columns]]
+name = "id"
+type = "text"
+primary_key = true
+generated = "uuid"
+
+[[operations.columns]]
+name = "category_name"
+type = "text"
+required = true
+unique = true
+max_length = 200
+
+[[operations.columns]]
+name = "omie_category_code"
+type = "text"
+max_length = 100
+
+[[operations.columns]]
+name = "usage_scope"
+type = "text"
+required = true
+max_length = 1000
+
+[[operations.columns]]
+name = "project_rule"
+type = "text"
+required = true
+enum = ["required", "prohibited", "not_validated"]
+
+[[operations.columns]]
+name = "counterparty_rule"
+type = "text"
+required = true
+enum = ["required", "prohibited", "not_validated"]
+
+[[operations.columns]]
+name = "department_rule"
+type = "text"
+required = true
+enum = ["required", "prohibited", "not_validated"]
+
+[[operations]]
+type = "create_index"
+table = "category_rules"
+name = "idx_category_rules_omie_category_code"
+columns = ["omie_category_code"]
