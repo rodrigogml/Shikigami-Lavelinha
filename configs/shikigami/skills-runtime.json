@@ -4,7 +4,7 @@
     "/opt/Shikigami-Lavelinha-Work": {
       "skills": {
         "laveli": {
-          "content_sha256": "d3a811d6825289b7449ef5c1448b877c46906fe67b943da8adf1fe3848049283",
+          "content_sha256": "0c6032db29cbd0353b4f29622c22f3bac89b55613e92886b9247bb8d4d2c63e6",
           "source": "/opt/Shikigami-Lavelinha/shikigami-skills/laveli",
           "target": "/opt/Shikigami-Lavelinha-Work/.agents/skills/laveli"
         }

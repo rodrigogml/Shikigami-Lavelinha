@@ -2,22 +2,11 @@
 
 # BEGIN ONMYOJI MANAGED CODEX SETTINGS
 # Gerado por setupOnmyoji.py.
-model = "gpt-5.6-sol"
+model = "gpt-5.6-terra"
 model_reasoning_effort = "medium"
 approval_policy = "never"
 sandbox_mode = "workspace-write"
 
 [sandbox_workspace_write]
 writable_roots = []
-
-[mcp_servers.onmyoji]
-command = "/opt/Shikigami-Lavelinha/venv/bin/python"
-args = ["-m", "onmyoji_daemon.mcp.server", "--onmyoji-root", "/opt/Shikigami-Lavelinha"]
-default_tools_approval_mode = "approve"
-
-[mcp_servers.onmyoji.env]
-PYTHONPATH = "/opt/Shikigami-Lavelinha/onmyoji-daemon/src"
-
-[tui]
-screen_reader_detection_done = true
 # END ONMYOJI MANAGED CODEX SETTINGS

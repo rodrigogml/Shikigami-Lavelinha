@@ -1,6 +1,6 @@
 {
   "commands": {
-    "updated_at": 1794418078.4715517,
+    "updated_at": 1794422444.08008,
     "owners": 1,
     "verified": 1,
     "failed": 0,
@@ -384,24 +384,134 @@
       "event": "turn.failed",
       "stage": "thread",
       "reason": "transport_lost"
+    },
+    {
+      "at": 1794418245.3601267,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "7cjjJfl6w_P17-G-0XFIeEX3",
+      "route": "auto"
+    },
+    {
+      "at": 1794418246.024243,
+      "event": "thread.resume_failed",
+      "reason": "transient",
+      "conversation_hash": "9e3bf0c7f4c2d305ef64"
+    },
+    {
+      "at": 1794418246.0266447,
+      "event": "turn.failed",
+      "stage": "thread",
+      "reason": "transport_lost"
+    },
+    {
+      "at": 1794419561.3338819,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "BUdqJe7VGMln1Lp4icqX30cm",
+      "route": "auto"
+    },
+    {
+      "at": 1794419804.299472,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "UlSVdr2ccr4EgOWK4oo0C9kp",
+      "route": "auto"
+    },
+    {
+      "at": 1794419883.596597,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "9H-6-amKOpdZHDJDEC101GoI",
+      "route": "auto"
+    },
+    {
+      "at": 1794420851.5953078,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "pkYY5VvLGFJz_gwRmwUXBD2_",
+      "route": "auto"
+    },
+    {
+      "at": 1794420851.7069654,
+      "event": "app_server.restarted",
+      "reason": "resources_changed"
+    },
+    {
+      "at": 1794421201.512643,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "VL29QJBQk52o86l9GK7R19tz",
+      "route": "auto"
+    },
+    {
+      "at": 1794421640.3017986,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "jBK0I8fwH0BtyK9MevR8Q0ea",
+      "route": "auto"
+    },
+    {
+      "at": 1794422107.9556339,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "H5BoYANlBySN7Ufiivo9H4l1",
+      "route": "auto"
+    },
+    {
+      "at": 1794422108.0274498,
+      "event": "app_server.restarted",
+      "reason": "resources_changed"
+    },
+    {
+      "at": 1794422229.9049392,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "C-ppGDDNpO_FSwKyVAJFZJy7",
+      "route": "auto"
+    },
+    {
+      "at": 1794422230.0119355,
+      "event": "app_server.restarted",
+      "reason": "resources_changed"
+    },
+    {
+      "at": 1794422355.736402,
+      "event": "delivery.uncertain",
+      "generation": 0,
+      "kind": "progress"
+    },
+    {
+      "at": 1794422356.489887,
+      "event": "delivery.uncertain",
+      "generation": 0,
+      "kind": "progress"
+    },
+    {
+      "at": 1794423205.562133,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "kt4IlNESBjix0G98A4JOCaJh",
+      "route": "auto"
     }
   ],
   "counters": {
     "input.uncertain": 1,
-    "input.persisted": 36,
+    "input.persisted": 46,
     "thread.reset": 1,
     "thread.revision_updated": 2,
-    "app_server.restarted": 5,
+    "app_server.restarted": 8,
     "media.send_started": 1,
     "media.sent": 1,
     "config.open": 1,
     "config.callback": 2,
     "config.rendered": 2,
-    "thread.resume_failed": 2,
-    "turn.failed": 2
+    "thread.resume_failed": 3,
+    "turn.failed": 3,
+    "delivery.uncertain": 2
   },
   "last_error": "Falha operacional registrada; confira a etapa e o código de diagnóstico.",
-  "last_error_code": "transport_lost",
-  "last_error_at": 1794418084.173741,
-  "updated_at": 1794418084.173741
+  "last_error_code": "operational_failure",
+  "last_error_at": 1794421794.213803,
+  "updated_at": 1794421794.213803
 }

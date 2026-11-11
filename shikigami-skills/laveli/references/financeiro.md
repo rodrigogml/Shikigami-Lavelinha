@@ -94,3 +94,11 @@ Primeiro lote a ser exibido, os lançamentos que estão prontos e verificados, f
 - Não realizar pesquisa cadastral para tentar comprovar a relação.
 - Mover o grupo para “Prontos — Sem Conciliação” somente após confirmação do usuário. Sem confirmação, manter o grupo em “Com Erros”.
 - Liste todos os registros da seção, mas foque em resolver um por vez.
+
+##### Roteiros para movimentações com erros
+
+###### Movimentações sem par no sistema
+
+1. Verificar se o extrato tem informações sobre nota, favorecido, mesagens com detalhes sobre a transação que possam ser utilizadas.
+2. Em caso de Nota, procurar pela nota utilizando número, referência do favorecido ou mesmo valor que possam ser utilizadas.
+	- Note que notas já com baixa de pagamento e com pagamentos liquidados marcados como conferidos podem ser avisados ao usuário mas não alteradas, pois conciliação indica que o usuário já conferiu com o lançamento de outra data.
