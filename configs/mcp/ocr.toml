@@ -1,0 +1,24 @@
+schema_version = 1
+
+[defaults]
+max_input_bytes = 262144000
+max_pages = 2000
+max_pixels = 50000000
+timeout_seconds = 1800
+retention_hours = 24
+max_queue = 16
+
+[profiles]
+
+[profiles.default]
+enabled = true
+description = "Documentos do workspace"
+readable_roots = ["/opt/Shikigami-Lavelinha-Work"]
+writable_roots = ["/opt/Shikigami-Lavelinha-Work"]
+work_directory = "/opt/Shikigami-Lavelinha-Work/.onmyoji/ocr/work"
+engine = "tesseract"
+languages = ["por", "eng"]
+dpi = 300
+tesseract_path = "tesseract"
+tessdata_dir = ""
+advanced_model_directory = "/opt/Shikigami-Lavelinha/state/mcp/ocr/models"

@@ -1,0 +1,52 @@
+schema_version = 1
+
+[defaults]
+timeout_seconds = 30
+page_size = 50
+max_message_bytes = 52428800
+max_attachment_bytes = 26214400
+max_body_characters = 65536
+pop_scan_limit = 200
+
+[accounts.default]
+enabled = true
+description = "Conta de email particular do agente, utilizada para recebimentos e envios por padrão quando outra não for especificada."
+address = "lavelinha@laveli.com.br"
+display_name = "Lavelinha"
+allowed_senders = []
+readable_roots = ["/opt/Shikigami-Lavelinha-Work"]
+writable_roots = ["/opt/Shikigami-Lavelinha-Work"]
+sent_copy = "server"
+
+[accounts.default.folders]
+inbox = "INBOX"
+sent = ""
+drafts = ""
+trash = ""
+archive = ""
+
+[accounts.default.incoming]
+protocol = "imap"
+host = "imap.forwardemail.net"
+port = 993
+security = "tls"
+username = "lavelinha@laveli.com.br"
+
+[accounts.default.incoming.auth]
+mode = "password"
+credential_profile = "default"
+credential_entry_path = "Lavelinha/MCP/Email:default:Incoming"
+password_field = "password"
+
+[accounts.default.smtp]
+protocol = "smtp"
+host = "smtp.forwardemail.net"
+port = 587
+security = "starttls"
+username = "lavelinha@laveli.com.br"
+
+[accounts.default.smtp.auth]
+mode = "password"
+credential_profile = "default"
+credential_entry_path = "Lavelinha/MCP/Email:default:Incoming"
+password_field = "password"

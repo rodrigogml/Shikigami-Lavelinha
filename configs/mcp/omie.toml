@@ -1,0 +1,13 @@
+schema_version = 1
+
+[defaults]
+timeout_seconds = 30
+max_retries = 2
+
+[profiles.laveli]
+enabled = true
+description = "Acesso ao Omie da empresa Laveli"
+credential_profile = "default"
+credential_entry_path = "Lavelinha/MCP/Omie:laveli:Credenciais"
+app_key_field = "username"
+app_secret_field = "password"

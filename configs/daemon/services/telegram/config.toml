@@ -5,19 +5,19 @@ enabled = false
 vault_profile = "default"
 token_entry = "Lavelinha/Serviço/Telegram:BotToken"
 poll_timeout_seconds = 30
-agent_outbound_media = false
+agent_outbound_media = true
 default_share_thoughts = true
 default_delete_thoughts = true
 
 [agent]
-max_parallel_conversations = 1
+max_parallel_conversations = 5
 turn_timeout_seconds = 900
 owner_execution_preferences = true
 owner_allowed_models = []
 owner_allowed_reasoning_efforts = []
 busy_input_policy = "queue"
 interrupt_grace_seconds = 15
-post_turn_results = false
+post_turn_results = true
 
 [limits]
 max_attachment_bytes = 20971520

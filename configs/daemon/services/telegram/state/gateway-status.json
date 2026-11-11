@@ -1,6 +1,6 @@
 {
   "commands": {
-    "updated_at": 1794398711.2167637,
+    "updated_at": 1794418078.4715517,
     "owners": 1,
     "verified": 1,
     "failed": 0,
@@ -22,14 +22,386 @@
       "generation": 0,
       "input_id": "Xl_qC48LhboeSYPJKIkyvJim",
       "route": "auto"
+    },
+    {
+      "at": 1794400652.884344,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "_AuDc69mMmchEVWrVsBIVIHq",
+      "route": "auto"
+    },
+    {
+      "at": 1794405848.6532853,
+      "event": "thread.reset",
+      "generation": 1,
+      "reason": "new_command"
+    },
+    {
+      "at": 1794406063.4575698,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "2jI9opzsVfLMIe8z8gEupd8o",
+      "route": "auto"
+    },
+    {
+      "at": 1794407851.6197994,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "h8WbfmpizeSnVx37ANYWA-s5",
+      "route": "auto"
+    },
+    {
+      "at": 1794407989.370554,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "oPXOs6DgN9EZ-AF1lA7bD8Ct",
+      "route": "auto"
+    },
+    {
+      "at": 1794408007.75412,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "YZ4NPYxGGgPHF-B69hwhFW7a",
+      "route": "auto"
+    },
+    {
+      "at": 1794409186.8664255,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "qwXA1zBghqo9q0DkIpgMG63y",
+      "route": "auto"
+    },
+    {
+      "at": 1794410038.3055515,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "5d013M5W5d5gBcIvHzh4N9-h",
+      "route": "auto"
+    },
+    {
+      "at": 1794410038.649224,
+      "event": "thread.revision_updated",
+      "conversation_hash": "9e3bf0c7f4c2d305ef64"
+    },
+    {
+      "at": 1794410410.5374062,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "uC5FVj9HKwNcVWBqL_nTiYIo",
+      "route": "auto"
+    },
+    {
+      "at": 1794410527.6964297,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "IGZ_Ftih3Bp9h3Tq27noipgD",
+      "route": "auto"
+    },
+    {
+      "at": 1794410740.6163647,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "v6OY5hlrCUp8blyY3DkcxOpu",
+      "route": "auto"
+    },
+    {
+      "at": 1794411456.8435678,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "sSLHOY5cbuHusZgNKZaO2Kf3",
+      "route": "auto"
+    },
+    {
+      "at": 1794411761.6734874,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "miUFkx3bqhq_Z9H1T7zr_1km",
+      "route": "auto"
+    },
+    {
+      "at": 1794411761.7895005,
+      "event": "app_server.restarted",
+      "reason": "resources_changed"
+    },
+    {
+      "at": 1794412184.5857413,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "kndYppf0OV6CZPcZA8Dnh8CB",
+      "route": "auto"
+    },
+    {
+      "at": 1794412184.6902337,
+      "event": "app_server.restarted",
+      "reason": "resources_changed"
+    },
+    {
+      "at": 1794412484.3408654,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "YDwv2DJBA_4tpQ9U145P6H6B",
+      "route": "auto"
+    },
+    {
+      "at": 1794412484.4510362,
+      "event": "app_server.restarted",
+      "reason": "resources_changed"
+    },
+    {
+      "at": 1794412643.6128376,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "UgI508lTyFLBGGlFh3K5_ICv",
+      "route": "auto"
+    },
+    {
+      "at": 1794412946.0460043,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "bV_hir_ohTiMSmX-K0P0ocWr",
+      "route": "auto"
+    },
+    {
+      "at": 1794412946.1519647,
+      "event": "app_server.restarted",
+      "reason": "resources_changed"
+    },
+    {
+      "at": 1794413482.1174974,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "XOKWe43DtmDdqRSK644uDKTJ",
+      "route": "auto"
+    },
+    {
+      "at": 1794413717.874385,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "8HdMMCd24RYKmAikQDNDkj5P",
+      "route": "auto"
+    },
+    {
+      "at": 1794413836.6108289,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "Xc2W51tkyajePtbc4SbriWZr",
+      "route": "auto"
+    },
+    {
+      "at": 1794413901.7079659,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "9EARgOsouZXfa3AxpcyDF1GY",
+      "route": "auto"
+    },
+    {
+      "at": 1794414068.3206208,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "GwkJarRveqjVDInBZeehkkUt",
+      "route": "auto"
+    },
+    {
+      "at": 1794414311.5648518,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "jD7meYOYnuFvQaF9oKYXTVcy",
+      "route": "auto"
+    },
+    {
+      "at": 1794414609.3288748,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "fXOA-lRuWwpbNAwNd97RITrw",
+      "route": "auto"
+    },
+    {
+      "at": 1794414686.8923323,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "Yo9m4BLE9IgFc6_jOt7B5roO",
+      "route": "auto"
+    },
+    {
+      "at": 1794414774.3550332,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "228bWUSkmL5g3AaeciQPDmdd",
+      "route": "auto"
+    },
+    {
+      "at": 1794414797.6497211,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "44dYXOgTO1pMaMs8pgSplWlw",
+      "route": "auto"
+    },
+    {
+      "at": 1794414923.3352354,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "PKB6gmYMY5ZnEB_SiLu8G0uN",
+      "route": "auto"
+    },
+    {
+      "at": 1794415057.7435818,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "Y-5mikMj472ux1H3PcIUS1e3",
+      "route": "auto"
+    },
+    {
+      "at": 1794415437.0727293,
+      "event": "thread.revision_updated",
+      "conversation_hash": "9e3bf0c7f4c2d305ef64"
+    },
+    {
+      "at": 1794415529.0569303,
+      "event": "media.send_started",
+      "kind": "document",
+      "size": 6040,
+      "method": "sendDocument",
+      "source": "outbox",
+      "conversation_hash": "9e3bf0c7f4c2d305ef64"
+    },
+    {
+      "at": 1794415530.3254056,
+      "event": "media.sent",
+      "kind": "document",
+      "size": 6040,
+      "method": "sendDocument",
+      "source": "outbox",
+      "conversation_hash": "9e3bf0c7f4c2d305ef64"
+    },
+    {
+      "at": 1794415763.078297,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "zmzERbg2V8U9YpbNTqAp4D-z",
+      "route": "auto"
+    },
+    {
+      "at": 1794415763.1848545,
+      "event": "app_server.restarted",
+      "reason": "resources_changed"
+    },
+    {
+      "at": 1794415978.0562434,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "a68hjJVh4pH_tzTK5pR7agMv",
+      "route": "auto"
+    },
+    {
+      "at": 1794416000.2256656,
+      "event": "config.open",
+      "generation": 1,
+      "conversation_hash": "9e3bf0c7f4c2d305ef64"
+    },
+    {
+      "at": 1794416001.7614775,
+      "event": "config.callback",
+      "action": "thoughts",
+      "conversation_hash": "9e3bf0c7f4c2d305ef64"
+    },
+    {
+      "at": 1794416002.5526433,
+      "event": "config.rendered",
+      "generation": 1,
+      "action": "thoughts",
+      "route": "thread",
+      "conversation_hash": "9e3bf0c7f4c2d305ef64"
+    },
+    {
+      "at": 1794416012.5873418,
+      "event": "config.callback",
+      "action": "back",
+      "conversation_hash": "9e3bf0c7f4c2d305ef64"
+    },
+    {
+      "at": 1794416013.4211843,
+      "event": "config.rendered",
+      "generation": 1,
+      "action": "back",
+      "route": "thread",
+      "conversation_hash": "9e3bf0c7f4c2d305ef64"
+    },
+    {
+      "at": 1794416241.0978007,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "zGyRiG0mpg6mskiZnyJmWjC6",
+      "route": "auto"
+    },
+    {
+      "at": 1794416577.193214,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "qVLct1c_dR3IAMzf-pWdB0Er",
+      "route": "auto"
+    },
+    {
+      "at": 1794417553.056815,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "tzvSJ7yKae5fQUkRtk4Jc-_h",
+      "route": "auto"
+    },
+    {
+      "at": 1794418046.2288637,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "t5CAkkEuhEuqr3POqL1qHNpD",
+      "route": "auto"
+    },
+    {
+      "at": 1794418046.4754312,
+      "event": "thread.resume_failed",
+      "reason": "transient",
+      "conversation_hash": "9e3bf0c7f4c2d305ef64"
+    },
+    {
+      "at": 1794418046.4770167,
+      "event": "turn.failed",
+      "stage": "thread",
+      "reason": "transport_lost"
+    },
+    {
+      "at": 1794418083.6956053,
+      "event": "input.persisted",
+      "generation": 1,
+      "input_id": "R7aj642nJDuPvxERZ5asa6UF",
+      "route": "auto"
+    },
+    {
+      "at": 1794418084.1715775,
+      "event": "thread.resume_failed",
+      "reason": "transient",
+      "conversation_hash": "9e3bf0c7f4c2d305ef64"
+    },
+    {
+      "at": 1794418084.174378,
+      "event": "turn.failed",
+      "stage": "thread",
+      "reason": "transport_lost"
     }
   ],
   "counters": {
     "input.uncertain": 1,
-    "input.persisted": 1
+    "input.persisted": 36,
+    "thread.reset": 1,
+    "thread.revision_updated": 2,
+    "app_server.restarted": 5,
+    "media.send_started": 1,
+    "media.sent": 1,
+    "config.open": 1,
+    "config.callback": 2,
+    "config.rendered": 2,
+    "thread.resume_failed": 2,
+    "turn.failed": 2
   },
   "last_error": "Falha operacional registrada; confira a etapa e o código de diagnóstico.",
-  "last_error_code": "operational_failure",
-  "last_error_at": 1794399366.0657184,
-  "updated_at": 1794399366.0657184
+  "last_error_code": "transport_lost",
+  "last_error_at": 1794418084.173741,
+  "updated_at": 1794418084.173741
 }

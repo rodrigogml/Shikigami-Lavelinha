@@ -1,0 +1,31 @@
+schema_version = 1
+
+[defaults]
+max_input_bytes = 262144000
+max_cells = 1000000
+max_operations = 1000
+max_result_bytes = 33554432
+max_package_bytes = 1073741824
+max_zip_entries = 100000
+max_memory_bytes = 2147483648
+timeout_seconds = 1800
+retention_hours = 24
+max_queue = 16
+
+[profiles]
+
+[profiles.default]
+enabled = true
+description = "Pastas Excel do workspace"
+readable_roots = ["/opt/Shikigami-Lavelinha-Work"]
+writable_roots = ["/opt/Shikigami-Lavelinha-Work"]
+work_directory = "/opt/Shikigami-Lavelinha-Work/.onmyoji/excel/work"
+allow_write = true
+allow_vba_source = false
+allow_macros = false
+allow_refresh = false
+allow_object_api = false
+allow_signature_changes = false
+allow_unverified_active_content = false
+allow_addins = false
+trusted_content = false

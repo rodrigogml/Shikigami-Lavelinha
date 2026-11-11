@@ -1,1 +1,6 @@
 schema_version = 1
+
+[skills."laveli"]
+enabled = true
+mode = "managed_copy"
+source = "laveli"

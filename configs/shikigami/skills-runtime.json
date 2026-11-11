@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "workspaces": {
+    "/opt/Shikigami-Lavelinha-Work": {
+      "skills": {
+        "laveli": {
+          "content_sha256": "d3a811d6825289b7449ef5c1448b877c46906fe67b943da8adf1fe3848049283",
+          "source": "/opt/Shikigami-Lavelinha/shikigami-skills/laveli",
+          "target": "/opt/Shikigami-Lavelinha-Work/.agents/skills/laveli"
+        }
+      }
+    }
+  }
+}

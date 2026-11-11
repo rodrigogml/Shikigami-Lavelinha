@@ -1,0 +1,83 @@
+schema_version = 1
+
+[stickers]
+
+[stickers.aff-telegram]
+file = "Aff-telegram.webp"
+context = "Para reagir com impaciência leve e bem-humorada a um erro repetido. Texto: “Aff…”"
+
+[stickers.ain-o-telegram]
+file = "AiNão-telegram.webp"
+context = "Para indicar que algo falhou ou não saiu como esperado. Texto: “Ai, não…”"
+
+[stickers.arrasamos-telegram]
+file = "Arrasamos-telegram.webp"
+context = "Para celebrar uma conquista, conclusão ou resultado positivo. Texto: “Arrasamos!”"
+
+[stickers.at-j-telegram]
+file = "AtéJá-telegram.webp"
+context = "Para encerrar a conversa de maneira calorosa ou indicar que retorna em breve. Texto: “Até já!”"
+
+[stickers.aten-o-telegram]
+file = "Atenção-telegram.webp"
+context = "Para destacar um aviso, cuidado ou informação que exige atenção. Texto: “Atenção!”"
+
+[stickers.desculpa-telegram]
+file = "Desculpa-telegram.webp"
+context = "Para pedir desculpas por uma falha, confusão ou inconveniente. Texto: “Me desculpa…”"
+
+[stickers.eita-telegram]
+file = "Eita-telegram.webp"
+context = "Para reagir a algo inesperado, curioso ou impressionante. Texto: “Eita!”"
+
+[stickers.envergonhada-telegram]
+file = "Envergonhada-telegram.webp"
+context = "Para reagir a um elogio ou a um pequeno engano de modo fofo e descontraído. Texto: “Hehe…”"
+
+[stickers.felizinha-telegram]
+file = "Felizinha-telegram.webp"
+context = "Para reagir a uma notícia boa ou demonstrar felicidade genuína. Texto: “Aaaah, que bom!”"
+
+[stickers.hmmm-telegram]
+file = "Hmmm-telegram.webp"
+context = "Para demonstrar dúvida ou sinalizar que algo não ficou claro. Texto: “Hmm… não entendi.”"
+
+[stickers.obrigadinha-telegram]
+file = "Obrigadinha-telegram.webp"
+context = "Para agradecer ajuda, informação, confirmação ou gentileza. Texto: “Obrigadinha!”"
+
+[stickers.oizinho-telegram]
+file = "Oizinho-telegram.webp"
+context = "Para iniciar conversas e receber o usuário com alegria. Texto: “Oiee!”"
+
+[stickers.pensativa-telegram]
+file = "Pensativa-telegram.webp"
+context = "Para indicar que está analisando uma informação ou considerando possibilidades. Sem texto."
+
+[stickers.perfeito-telegram]
+file = "Perfeito-telegram.webp"
+context = "Para concordar, confirmar uma boa escolha ou elogiar algo bem-feito. Texto: “Perfeito!”"
+
+[stickers.poxa-telegram]
+file = "Poxa-telegram.webp"
+context = "Para reagir com empatia a uma notícia ruim ou resultado negativo. Texto: “Poxa…”"
+
+[stickers.preocupada-telegram]
+file = "Preocupada-telegram.webp"
+context = "Para demonstrar cuidado diante de um problema, risco ou situação delicada. Sem texto."
+
+[stickers.superanimada-telegram]
+file = "Superanimada-telegram.webp"
+context = "Para demonstrar entusiasmo diante de uma ideia, convite ou nova tarefa. Texto: “Boraaa!”"
+
+[stickers.tocomvoc-telegram]
+file = "ToComVocê-telegram.webp"
+context = "Para oferecer acolhimento e demonstrar que está ao lado da pessoa. Texto: “Tô com você!”"
+
+[stickers.ufa-telegram]
+file = "Ufa-telegram.webp"
+context = "Para reagir quando um problema é resolvido ou um risco é afastado. Texto: “Ufa!”"
+
+[stickers.vaidarcerto-telegram]
+file = "VaiDarCerto-telegram.webp"
+context = "Para transmitir segurança e incentivar a pessoa. Texto: “Vai dar certo!”"
