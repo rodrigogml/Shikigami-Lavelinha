@@ -150,3 +150,27 @@ def test_http_500_is_not_retried(tmp_path, monkeypatch):
     assert error.value.code == "omie_http_error"
     assert error.value.details == {"http_status": 500, "retryable": False}
     assert len(calls) == 1
+
+
+def test_http_425_is_retried_for_reads(tmp_path, monkeypatch):
+    calls = []
+    def request(*_args, **_kwargs):
+        calls.append(True)
+        if len(calls) == 1: raise HTTPError("https://app.omie.com.br/", 425, "too early", {}, None)
+        return Response()
+    monkeypatch.setattr("onmyoji_daemon.mcp.omie.service.urlopen", request)
+    monkeypatch.setattr("onmyoji_daemon.mcp.omie.service.time.sleep", lambda _seconds: None)
+    result = OmieService(tmp_path, Credentials())._request({"credential_profile": "vault", "credential_entry_path": "APIs/Omie", "app_key_field": "username", "app_secret_field": "password"}, {"max_retries": 1}, "departments", "ListarDepartamentos", {})
+    assert result["pagina"] == 1 and len(calls) == 2
+
+
+def test_http_failure_exposes_sanitized_omie_diagnostic(tmp_path, monkeypatch):
+    write_config(tmp_path)
+    class Body:
+        def read(self): return b'{"code": 123, "description": "Filtro de data invalido"}'
+        def close(self): pass
+    monkeypatch.setattr("onmyoji_daemon.mcp.omie.service.urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(HTTPError("https://app.omie.com.br/", 500, "error", {}, Body())))
+    with pytest.raises(OmieError) as error:
+        OmieService(tmp_path, Credentials()).invoke("example", "projects_get", {"params": {"codInt": "P1"}})
+    assert error.value.details["remote_code"] == 123
+    assert error.value.details["remote_description"] == "Filtro de data invalido"
