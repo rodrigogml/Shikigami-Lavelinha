@@ -1,6 +1,6 @@
 {
   "telegram": {
-    "enabled": false
+    "enabled": true
   },
   "mini-apps": {
     "enabled": false

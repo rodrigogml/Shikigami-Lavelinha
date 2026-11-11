@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "contacts": [
+    {
+      "telegram_user_id": 6975779431,
+      "username": "rodrigogomale",
+      "display_name": "Rodrigo",
+      "roles": [
+        "owner"
+      ],
+      "source": "pair"
+    }
+  ]
+}

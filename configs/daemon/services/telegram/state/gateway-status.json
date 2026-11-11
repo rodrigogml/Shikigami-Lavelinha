@@ -1,0 +1,35 @@
+{
+  "commands": {
+    "updated_at": 1794398711.2167637,
+    "owners": 1,
+    "verified": 1,
+    "failed": 0,
+    "expected": [
+      "new",
+      "config",
+      "channel"
+    ]
+  },
+  "diagnostics": [
+    {
+      "at": 1794398697.03916,
+      "event": "input.uncertain",
+      "reason": "preparation_interrupted"
+    },
+    {
+      "at": 1794399228.7301378,
+      "event": "input.persisted",
+      "generation": 0,
+      "input_id": "Xl_qC48LhboeSYPJKIkyvJim",
+      "route": "auto"
+    }
+  ],
+  "counters": {
+    "input.uncertain": 1,
+    "input.persisted": 1
+  },
+  "last_error": "Falha operacional registrada; confira a etapa e o código de diagnóstico.",
+  "last_error_code": "operational_failure",
+  "last_error_at": 1794399366.0657184,
+  "updated_at": 1794399366.0657184
+}
