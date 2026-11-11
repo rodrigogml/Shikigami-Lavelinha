@@ -1098,42 +1098,48 @@ def update_upstream(root: Path) -> None:
                 index += 1
                 if index < len(records): paths.append(records[index])
             index += 1
-        if any(_update_sensitive_path(path) for path in paths):
-            raise GitSetupError("Há arquivos operacionais ou sensíveis entre as alterações Git. Eles não podem ser incluídos em commit ou stash. Corrija o rastreamento e preserve esses arquivos antes de atualizar.")
+        protected = [path for path in paths if _update_sensitive_path(path)]
+        eligible = [path for path in paths if not _update_sensitive_path(path)]
         origin = bool(_git_remote_url(root, "origin"))
         choice = None
         if paths:
             alert(f"Há {len(paths)} caminho(s) com alterações locais; escolha como preservá-las antes da atualização.")
             for path in paths: note(path)
+            if protected:
+                alert("Alterações operacionais ou potencialmente sensíveis permanecerão locais e não entrarão no novo commit ou stash. O merge só prosseguirá se o Git puder preservá-las; um push também pode publicar commits anteriores.")
             options = (["Salvar em commit e publicar no origin"] if origin else []) + ["Salvar apenas em commit", "Guardar temporariamente em stash"]
-            choice = flow_choice("Alterações locais", options, "Guardar temporariamente em stash")
-            if choice is None: note("Atualização cancelada; alterações locais preservadas."); return
+            while True:
+                choice = flow_choice("Alterações locais", options, "Guardar temporariamente em stash")
+                if choice is None: note("Atualização cancelada; alterações locais preservadas."); return
+                if "commit" not in choice.casefold() or eligible: break
+                alert("Não há alterações versionáveis para um commit. Escolha stash para preservar os arquivos locais durante a atualização ou cancele.")
         note("Buscando somente a branch main do upstream.")
         _git(root, ["fetch", "--no-tags", "upstream", "+refs/heads/main:refs/remotes/upstream/main"], timeout=180)
         if choice and "commit" in choice.casefold():
             message = prompt("Mensagem do commit [X = cancelar]: ").strip()
             if not message or message.casefold() == "x": note("Atualização cancelada; alterações locais preservadas."); return
-            _git(root, ["add", "-A"])
-            staged = _git(root, ["diff", "--cached", "--name-only", "-z"]).stdout.split("\0")
-            if any(_update_sensitive_path(path) for path in staged if path):
-                raise GitSetupError("Arquivos operacionais ou sensíveis entraram na área de preparação. Nenhum commit foi criado; revise a área de preparação.")
-            _git(root, ["commit", "-m", message], timeout=180)
+            targets = [":(literal)" + path for path in eligible]
+            _git(root, ["add", "-A", "--", *targets])
+            _git(root, ["commit", "--only", "-m", message, "--", *targets], timeout=180)
             if "publicar" in choice:
                 _git(root, ["push", "origin", f"HEAD:refs/heads/{branch}"], timeout=180)
                 result(True, "Commit publicado no origin.")
-        elif choice:
+        elif choice and eligible:
+            staged = _git(root, ["diff", "--cached", "--name-only", "-z"]).stdout.split("\0")
+            if any(_update_sensitive_path(path) for path in staged if path):
+                raise GitSetupError("Há arquivos operacionais ou sensíveis na área de preparação; o stash do Git poderia incluí-los. Retire-os da preparação preservando os arquivos e tente novamente.")
             previous = _git(root, ["rev-parse", "--verify", "refs/stash"], allow_failure=True).stdout.strip()
-            _git(root, ["stash", "push", "--include-untracked", "--message", "onmyoji-update-temporario"], timeout=180)
+            _git(root, ["stash", "push", "--include-untracked", "--message", "onmyoji-update-temporario", "--", *[":(literal)" + path for path in eligible]], timeout=180)
             stash_id = _git_output(root, ["rev-parse", "--verify", "refs/stash"])
             if stash_id == previous:
                 raise GitSetupError("O Git não criou um novo stash; as alterações locais permanecem no lugar.")
-            if _git(root, ["status", "--porcelain=v1", "--untracked-files=all"]).stdout:
+            if not protected and _git(root, ["status", "--porcelain=v1", "--untracked-files=all"]).stdout:
                 raise GitSetupError(f"Há alterações que não puderam ser guardadas, possivelmente em submódulos. O stash {stash_id} foi preservado; restaure-o manualmente antes de continuar.")
         note("Mesclando upstream/main na branch atual.")
         merged = _git(root, ["merge", "--no-edit", "upstream/main"], allow_failure=True, timeout=180)
         if merged.returncode:
             detail = _git_detail(merged) or "O merge não foi concluído."
-            raise GitSetupError(detail + " Resolva ou aborte o merge pelo Git." + (" O stash temporário foi preservado; restaure-o após concluir o merge." if stash_id else ""))
+            raise GitSetupError(detail + " Confira o estado do Git antes de resolver ou abortar um eventual merge." + (" O stash temporário foi preservado; restaure-o após concluir o merge." if stash_id else ""))
         if stash_id:
             if _git_output(root, ["rev-parse", "--verify", "refs/stash"]) != stash_id:
                 raise GitSetupError(f"O stash temporário {stash_id} foi preservado; a pilha mudou e sua restauração deve ser feita manualmente.")
@@ -2385,12 +2391,11 @@ def notification_menu(root: Path) -> None:
             current = configuration.load()
         except (OSError, ValueError, RpcError) as error:
             result(False, str(error)); return
-        screen("Notificações ao agente", "Ingresso privado/local · " + ("HABILITADO" if current["enabled"] else "DESABILITADO"))
+        screen("Eventos do agente", "Listener HTTP local · " + ("HABILITADO" if current["enabled"] else "DESABILITADO"))
         item("1.", "Desabilitar ingresso" if current["enabled"] else "Habilitar ingresso")
-        item("2.", "Diagnóstico")
-        item("3.", "Modo de recepção", "Telegram e eventos" if current["telegram_receiver_enabled"] else "Somente eventos")
-        item("4.", "Conta SMTP padrão", current["smtp_account"] or "Não selecionada")
-        item("5.", "Canal global de incidentes", str(current["incident"] or "Desabilitado"))
+        item("2.", "Porta do listener", str(current["port"]))
+        item("3.", "Canal de incidentes", str(current["incident"] or "Desabilitado"))
+        item("4.", "Diagnóstico")
         item("X.", "Voltar")
         choice = prompt("Opção: ").strip().casefold()
         if choice in {"x", "\x1b"}:
@@ -2411,26 +2416,19 @@ def notification_menu(root: Path) -> None:
                 else:
                     result(True, "Ingresso desabilitado.")
                 continue
-            if choice == "2":
-                flow_heading("Diagnóstico de notificações", "Configuração local e execução compartilhada")
+            if choice == "4":
+                flow_heading("Diagnóstico de eventos", "Configuração local e execução compartilhada")
                 diagnostic = local_daemon_rpc(root, "notification.diagnose")
                 for label, ready in diagnostic["checks"].items():
                     result(bool(ready), label.replace("_", " "))
                 note("Execuções: " + json.dumps(diagnostic["counts"], ensure_ascii=False))
                 continue
-            if choice == "3":
-                selected = flow_choice("Modo de recepção", ["Somente eventos", "Telegram e eventos"], "Telegram e eventos" if current["telegram_receiver_enabled"] else "Somente eventos")
-                if selected is None:
+            if choice == "2":
+                raw = prompt(f"Porta [{current['port']}]: ").strip()
+                if raw.casefold() in {"x", "\x1b"}:
                     continue
-                changes = {"telegram_receiver_enabled": selected == "Telegram e eventos"}
-            elif choice == "4":
-                accounts = McpConfiguration(root).email().get("accounts", {})
-                names = ["Desabilitar e-mail", *sorted(name for name, account in accounts.items() if account.get("enabled") and account.get("smtp"))]
-                selected = flow_choice("Conta SMTP padrão", names, current["smtp_account"] or "Desabilitar e-mail")
-                if selected is None:
-                    continue
-                changes = {"smtp_account": "" if selected == "Desabilitar e-mail" else selected}
-            elif choice == "5":
+                changes = {"port": int(raw or current["port"])}
+            elif choice == "3":
                 kind = flow_choice("Canal de incidentes", ["Desabilitado", "Telegram", "E-mail"], {"telegram": "Telegram", "email": "E-mail"}.get((current["incident"] or {}).get("type"), "Desabilitado"))
                 if kind is None:
                     continue
@@ -2444,13 +2442,25 @@ def notification_menu(root: Path) -> None:
                     destination = destination or previous
                     if not destination:
                         continue
-                    changes = {"incident": {"type": "telegram" if kind == "Telegram" else "email", "value": destination}}
+                    channel = {"type": "telegram" if kind == "Telegram" else "email", "value": destination}
+                    if kind == "E-mail":
+                        accounts = McpConfiguration(root).email().get("accounts", {})
+                        names = sorted(name for name, account in accounts.items() if account.get("enabled") and account.get("smtp"))
+                        account = flow_choice("Conta SMTP do incidente", names, (current["incident"] or {}).get("account")) if names else None
+                        if account is None:
+                            continue
+                        previous_subject = (current["incident"] or {}).get("subject", "Incidente do Onmyōji")
+                        subject = prompt(f"Assunto [{previous_subject}]: ").strip()
+                        if subject.casefold() in {"x", "\x1b"}:
+                            continue
+                        channel.update(account=account, subject=subject or previous_subject)
+                    changes = {"incident": channel}
             else:
                 alert("Opção inválida. Escolha uma das alternativas ou cancele."); continue
             saved = save_notification_configuration(root, changes)
             result(True, "Configuração salva.")
             if saved.get("restart_required"):
-                note("Reinicie o processo do daemon para aplicar limites e o modo de recepção.")
+                note("Reinicie o processo do daemon para aplicar a nova porta.")
         except (OSError, ValueError, RpcError) as error:
             result(False, str(error))
 
@@ -2461,36 +2471,36 @@ def scheduler_menu(root: Path) -> None:
     from onmyoji_daemon.rpc import RpcError
     from onmyoji_daemon.task_scheduler.repository import SORT_FIELDS
     sort, descending, offset = "next_run_at", False, 0
-    labels = ("Nome", "Estado", "Próxima execução", "Criação", "Ação", "Canal", "Destino", "Thread")
+    labels = ("ID", "Status", "Ação", "Expressão", "Timezone", "Próxima execução", "Criado", "Canal", "Política de thread", "Último resultado")
     while True:
-        screen("Agendador", "Consulta de definições · CLI/RPC administram os agendamentos")
+        screen("Agendamentos", "Consulta somente leitura · edite os arquivos TOML para administrar")
         listing = {"items": [], "total": 0}
         try:
             state = local_daemon_rpc(root, "status", {"service": "task-scheduler"})
             note("Serviço: " + state.get("state", "desconhecido"))
             if state.get("state") == "running":
                 listing = local_daemon_rpc(root, "task.list", {"sort": sort, "descending": descending, "offset": offset, "limit": 20})
-            print("  " + " | ".join(f"{index}. {label}" for index, label in enumerate(labels, 1)))
+            print("  " + " | ".join(f"{index % 10}. {label}" for index, label in enumerate(labels, 1)))
             for value in listing["items"]:
-                zone = ZoneInfo(value.get("rule", {}).get("timezone", "America/Sao_Paulo"))
+                zone = ZoneInfo(value.get("timezone") or "UTC")
                 def local_time(raw):
                     return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(zone).strftime("%Y-%m-%d %H:%M %z") if raw else None
-                fields = [value["name"], value["state"], local_time(value["next_run_at"]), local_time(value["created_at"]), value["action_type"], value["channel"], value["destination"], value["thread_policy"]]
-                widths = (16, 9, 24, 24, 12, 8, 18, 6)
+                fields = [value["id"], value["status"], value["action_type"], value["expression"], value["timezone"], local_time(value["next_run_at"]), local_time(value["created_at"]), value["channel"], value["thread_policy"], value["last_result"]]
+                widths = (14, 9, 8, 18, 18, 22, 22, 8, 18, 16)
                 rendered = [str(field or "—")[:width] for field, width in zip(fields, widths)]
                 print("  " + " | ".join(rendered))
             note(f"{listing['total']} definição(ões) · página {offset // 20 + 1} · ordem {labels[SORT_FIELDS.index(sort)]} {'decrescente' if descending else 'crescente'}")
         except (OSError, ValueError, RpcError) as error:
             result(False, str(error))
-        item("1–8.", "Ordenar por coluna; repetir inverte a direção")
+        item("1–0.", "Ordenar por coluna; repetir inverte a direção")
         item("P.", "Página anterior"); item("N.", "Próxima página"); item("R.", "Atualizar")
         item("E.", "Habilitar e iniciar serviço"); item("D.", "Desabilitar serviço"); item("H.", "Diagnóstico")
         item("X.", "Voltar")
         choice = prompt("Opção: ").strip().casefold()
         if choice in {"x", "\x1b"}:
             return
-        if choice in {str(index) for index in range(1, 9)}:
-            selected = SORT_FIELDS[int(choice) - 1]
+        if choice in {str(index) for index in range(10)}:
+            selected = SORT_FIELDS[9 if choice == "0" else int(choice) - 1]
             descending = not descending if sort == selected else False
             sort, offset = selected, 0
         elif choice == "p": offset = max(0, offset - 20)
@@ -4190,8 +4200,8 @@ def daemon_menu(root: Path) -> None:
         item("T.", "Telegram", "Configuração, teste e pareamento")
         item("M.", "MiniApps", "Aplicações, HTTPS local e OAuth")
         item("P.", "Publicação externa", "Gateway HTTP e Cloudflare Tunnel compartilhados")
-        item("N.", "Notificações ao agente", "Ingresso privado/local e canais operacionais")
-        item("A.", "Agendador", "Consulta e ordenação de definições")
+        item("N.", "Eventos do agente", "Listener HTTP local e incidentes")
+        item("A.", "Agendamentos", "Consulta somente leitura das definições TOML")
         print()
         item("X.", "Voltar")
         choice = prompt("Opção: ").strip().casefold()

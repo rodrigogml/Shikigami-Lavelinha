@@ -365,7 +365,7 @@ class ExecutionGateway:
         try:
             attachments, context = self._load_input(slot.conversation_id, slot.inbox)
             if slot.inbox.get("notification"):
-                self._notification_destination(context["notification"], context.get("notification_smtp_account"))
+                self._notification_destination(context["notification"])
             if slot.generation != self._generation(slot.conversation_id):
                 self.store.fail_input(slot.inbox["id"], "generation_reset")
                 self.store.terminal(slot.identifier, "cancelled")
@@ -539,6 +539,8 @@ class ExecutionGateway:
         if active.user_cancelled:
             return "O turno foi cancelado. As mensagens ainda na fila foram preservadas. Efeitos externos já iniciados podem exigir conferência."
         if active.status == "completed":
+            if getattr(active, "origin", "telegram") == "event":
+                return active.final_text or None
             return active.final_text or "O agente concluiu o turno sem uma resposta textual."
         if active.final_text:
             return "Resposta parcial; o turno foi interrompido ou falhou.\n\n" + active.final_text
@@ -675,8 +677,10 @@ class ExecutionGateway:
         generation = slot.generation if slot else self._generation(conversation)
         if self.stop_event.is_set() or slot and (slot.cancel_requested or generation != self._generation(conversation)):
             raise CodexProtocolError("Solicitação cancelada antes de iniciar geração.", kind="not_sent")
+        self._execution_local.failure_stage = "app_server"
         client = self._app_client()
         notification = (turn_context or {}).get("notification")
+        self._execution_local.failure_stage = "thread"
         thread = self._app_thread(chat_id, client, turn_context)
         email = notification and notification["response_channel"]["type"] == "email"
         address, topic = (0, {}) if email else self._telegram_address(conversation)
@@ -724,6 +728,7 @@ class ExecutionGateway:
                     self.store.operation_result(active.operation_id, "not_sent", "generation_reset")
                 active.suppressed = True
                 raise CodexProtocolError("Conversa reiniciada antes do início.", kind="not_sent")
+            self._execution_local.failure_stage = "turn_start"
             result = client.request("turn/start", params)
             turn = result.get("turn", result)
             identifier = str(turn.get("id") or "") if isinstance(turn, dict) else ""
@@ -735,6 +740,7 @@ class ExecutionGateway:
                 self.store.bind(active.execution_id, active.process_epoch, thread, identifier)
             with self.workers_changed:
                 self.workers_changed.notify_all()
+            self._execution_local.failure_stage = "turn_execution"
             if not active.completed.wait(self.settings.turn_timeout):
                 active.cancel_requested = True
                 deadline = time.monotonic() + self.settings.interrupt_grace_seconds
@@ -1062,7 +1068,9 @@ class ExecutionGateway:
             self._diagnostic("delivery.uncertain", generation=active.generation if active else self._generation(conversation), kind="final")
         except Exception as error:
             active = active or getattr(self._execution_local, "active", None)
-            self._record_error("Não foi possível concluir o turno do Codex.")
+            self._record_error(error)
+            reason = error.reason if isinstance(error, ProcessRecoveryError) else error.kind if isinstance(error, CodexProtocolError) else "operational_failure"
+            self._diagnostic("turn.failed", stage=getattr(self._execution_local, "failure_stage", "preparation"), reason=reason)
             if self.api and not notification and (not active or not active.suppressed):
                 message = self._public_turn_error(error)
                 if active and self.store.blocked(conversation):
@@ -1082,6 +1090,7 @@ class ExecutionGateway:
                 self._settle_visible(active)
                 self._finish_resources(active)
             self._execution_local.active = None
+            self._execution_local.failure_stage = "preparation"
             typing_stop.set(); thread.join(timeout=1)
             if not permit_released:
                 if active and not active.completed.is_set() and self.app_server and self.app_server.running():
@@ -1314,9 +1323,9 @@ class ExecutionGateway:
                     final_item = next((item for item in reversed(turn.get("items", [])) if isinstance(item, dict) and item.get("type") == "agentMessage" and item.get("phase") in {None, "final_answer"} and isinstance(item.get("text"), str)), {})
                     final = final_item.get("text", "")
                     with self.database_lock, self.database:
-                        owner = self.database.execute("SELECT generation,reply_mode,final_item_id,user_cancelled FROM execution_turns WHERE execution_id=?", (execution,)).fetchone()
+                        owner = self.database.execute("SELECT e.generation,e.reply_mode,e.final_item_id,e.user_cancelled,COALESCE(i.origin,'telegram') FROM execution_turns e LEFT JOIN inbox_items i ON i.execution_id=e.execution_id WHERE e.execution_id=? LIMIT 1", (execution,)).fetchone()
                         self.database.execute("UPDATE execution_turns SET turn_id=? WHERE execution_id=?", (turn.get("id"), execution))
-                    answer = final or "O agente concluiu o turno sem uma resposta textual." if turn["status"] == "completed" else "Resposta parcial; o turno foi interrompido ou falhou.\n\n" + final if final else "O agente não conseguiu concluir esta solicitação."
+                    answer = (final or (None if owner and owner[4] == "event" else "O agente concluiu o turno sem uma resposta textual.")) if turn["status"] == "completed" else "Resposta parcial; o turno foi interrompido ou falhou.\n\n" + final if final else "O agente não conseguiu concluir esta solicitação."
                     if owner and owner[3]:
                         answer = "O turno foi cancelado. As mensagens ainda na fila foram preservadas. Efeitos externos já iniciados podem exigir conferência."
                     text = answer if owner and owner[0] == self._generation(conversation) else None
@@ -1333,6 +1342,7 @@ class ExecutionGateway:
         preparadores ou callbacks ainda podem terminar depois deste método.
         ``release_lease`` explícito exige drenagem controlada do chamador.
         """
+        self._stop_notification_http()
         self.stop_event.set()
         with self.app_server_lock:
             for slot in self._slots.values():
