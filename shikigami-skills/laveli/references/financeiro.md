@@ -61,8 +61,8 @@ O processo de conciliação de contas consiste em conciliar lançamentos e saldo
 ### Triagem da Conciliação
 
 Após comparar as movimentações da instituição com os lançamentos do sistema, exibir quatro tabelas:
-- **Prontos**: grupos de conciliação confirmados, sem divergências.
-- **Prontos - Sem Conciliação** - grupo de movimentações sem erros que faltam apenas a confirmação de conciliação do usuário no sistema.
+- **Prontos - Conciliados**: grupos de conciliação confirmados, sem divergências.
+- **Prontos - Não Conciliados** - grupo de movimentações sem erros que faltam apenas a confirmação de conciliação do usuário no sistema.
 - **Com Erros**: grupos prováveis, mas com divergência de data, valor, natureza, descrição, beneficiário, duplicidade ou outro problema.
 - **Sem Correspondência**: movimentações ou lançamentos que não pertencem a nenhum grupo.
 
@@ -95,7 +95,11 @@ Regras de exibição
 Passos a serem sugeridos para concluir a conciliação.
 De regra geral deve-se começar dos que parecem mais fáceis e óbvios, para eliminar os lançamentos e no fim trabalhar com os remanescentes.
 
-#### Prontos - Sem Conciliação
+#### Prontos - Conciliados
+
+São considerados 'Prontos e Conciliados' as movimentações 
+
+#### Prontos - Não Conciliados
 
 Primeiro lote a ser exibido, os lançamentos que estão prontos e verificados, faltando apenas a marcação de conciliação do usuário no sistema.
 
