@@ -76,6 +76,7 @@ Regras de exibição
 - Não incluir o mesmo registro em mais de um grupo ou tabela.
 - Ordenar pela data mais antiga de cada grupo.
 - Exibir os totais de cada lado e sua diferença.
+- Grupois de Lançamentos detectados como 'Prontos' e que já estão conciliados não precisam e não devem ser explicitados na mensagem (salvo se perguntado). O foco é sempre no que ainda precisa ser conciliado e nos problemas. Não gaste tempo no que já está certo.
 
 ### Passos Sugeridos para Conciliação
 
@@ -92,4 +93,4 @@ Primeiro lote a ser exibido, os lançamentos que estão prontos e verificados, f
 - Quando data, natureza e valor coincidirem, apresentar o grupo como provável correspondência e destacar a diferença de descrição ou beneficiário.
 - Não realizar pesquisa cadastral para tentar comprovar a relação.
 - Mover o grupo para “Prontos — Sem Conciliação” somente após confirmação do usuário. Sem confirmação, manter o grupo em “Com Erros”.
-
+- Liste todos os registros da seção, mas foque em resolver um por vez.
