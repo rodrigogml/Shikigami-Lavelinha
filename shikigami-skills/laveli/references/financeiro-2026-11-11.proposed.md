@@ -181,4 +181,3 @@ Antes de criar ou validar um lançamento financeiro, localize sua categoria nest
 | Frete | Frete sem regra adicional de campos nesta categoria. | Pendente de cadastro | - | - | - |
 | Transferências de Saldo Caixinha para Aporte | Transferência de saldo da Caixinha destinada a aporte. | Pendente de cadastro | P | - | P |
 | Valores a Reembolsar | Valor registrado como pendente de reembolso. | Pendente de cadastro | - | - | - |
-
