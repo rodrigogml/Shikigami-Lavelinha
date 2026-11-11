@@ -8,7 +8,7 @@ import pytest
 from onmyoji_daemon.agent_notification.http import NotificationHttpServer
 from onmyoji_daemon.agent_notification.configuration import NotificationConfiguration
 from onmyoji_daemon.rpc import RpcError
-from onmyoji_daemon.task_scheduler.actions import MAX_OUTPUT_BYTES, event_action, script_action
+from onmyoji_daemon.task_scheduler.actions import MAX_OUTPUT_BYTES, email_check_action, event_action, script_action
 from onmyoji_daemon.task_scheduler.calendar import instant, iso, latest_due, next_at, validate_rule
 from onmyoji_daemon.task_scheduler.repository import SORT_FIELDS, TaskRepository
 from onmyoji_daemon.task_scheduler.service import TaskScheduler
@@ -67,15 +67,30 @@ def repository(tmp_path):
     store.close()
 
 
-def test_calendar_accepts_only_once_and_five_field_cron():
+def test_calendar_accepts_once_cron_and_anchored_interval():
     now = instant("2026-11-10T00:00:00Z")
     once = validate_rule({"type": "once", "at": "2026-11-10T10:00:00+09:00"}, now)
     assert once == {"type": "once", "at": "2026-11-10T01:00:00.000Z"}
     cron = validate_rule({"type": "cron", "expression": "0 9 * * 1-5", "timezone": "America/Sao_Paulo"}, now)
     assert iso(next_at(cron, now)) == "2026-11-10T12:00:00.000Z"
-    for invalid in ({"type": "interval", "anchor_at": iso(now), "every_seconds": 60}, {"type": "cron", "expression": "0 * * * *"}, {"type": "cron", "expression": "0 0 * * * *", "timezone": "UTC"}, {"type": "once", "at": "2026-01-01"}):
+    interval = validate_rule({"type": "interval", "anchor_at": "2026-11-10T00:02:00Z", "every_seconds": 900}, now)
+    assert iso(next_at(interval, now)) == "2026-11-10T00:02:00.000Z"
+    assert iso(next_at(interval, instant("2026-11-10T00:02:00Z"))) == "2026-11-10T00:17:00.000Z"
+    assert iso(latest_due(interval, instant("2026-11-10T00:31:59Z"))) == "2026-11-10T00:17:00.000Z"
+    for invalid in ({"type": "interval", "anchor_at": iso(now), "every_seconds": 59}, {"type": "interval", "anchor_at": iso(now), "every_seconds": True}, {"type": "cron", "expression": "0 * * * *"}, {"type": "cron", "expression": "0 0 * * * *", "timezone": "UTC"}, {"type": "once", "at": "2026-01-01"}):
         with pytest.raises(RpcError):
             validate_rule(invalid, now)
+
+
+def test_interval_coalesces_from_activation_anchor_across_restart(repository):
+    store, now, schedules = repository
+    (schedules / "interval.toml").write_text(event_toml(time='type = "interval"\nanchor_at = "2026-11-10T00:02:00Z"\nevery_seconds = 900'), encoding="utf-8")
+    store.reconcile()
+    assert store.get("interval")["next_run_at"] == "2026-11-10T00:02:00.000Z"
+    now[0] = instant("2026-11-10T00:48:00Z"); store.materialize()
+    occurrence = store.history("interval")["items"][0]
+    assert occurrence["scheduled_at"] == "2026-11-10T00:47:00.000Z"
+    assert store.get("interval")["next_run_at"] == "2026-11-10T01:02:00.000Z"
 
 
 def test_cron_dst_nonexistent_is_skipped_and_duplicate_uses_first():
@@ -100,6 +115,54 @@ def test_toml_is_source_of_truth_and_mtime_avoids_spurious_revision(repository):
     store.reconcile(force=True)
     assert store.get("daily")["revision"] == first["revision"] + 1
     assert store.get("daily")["action"]["event"]["prompt"] == "Alterado"
+
+
+def test_reserved_email_check_definition_uses_interval_and_account(repository):
+    store, _now, schedules = repository
+    (schedules / "onmyoji-email-default.toml").write_text('''schema_version = 1
+enabled = true
+description = "Checagem automática"
+created_at = "2026-11-10T00:00:00Z"
+managed_by = "onmyoji.email-monitor"
+[time]
+type = "interval"
+anchor_at = "2026-11-10T00:00:00Z"
+every_seconds = 900
+[action]
+type = "email_check"
+account = "default"
+timeout_seconds = 300
+''', encoding="utf-8")
+    store.reconcile()
+    value = store.get("onmyoji-email-default")
+    assert value["status"] == "enabled" and value["action"] == {"type": "email_check", "account": "default", "timeout_seconds": 300}
+    assert value["expression"] == "900s"
+
+
+def test_email_check_action_and_managed_marker_are_mutually_reserved(repository):
+    store, _now, schedules = repository
+    email_check = '''schema_version = 1
+enabled = true
+description = "Manual"
+created_at = "2026-11-10T00:00:00Z"
+[time]
+type = "interval"
+anchor_at = "2026-11-10T00:00:00Z"
+every_seconds = 900
+[action]
+type = "email_check"
+account = "default"
+'''
+    (schedules / "manual-email.toml").write_text(email_check, encoding="utf-8")
+    managed_event = event_toml().replace(
+        'created_at = "2026-11-10T00:00:00Z"',
+        'created_at = "2026-11-10T00:00:00Z"\nmanaged_by = "onmyoji.email-monitor"')
+    (schedules / "managed-event.toml").write_text(managed_event, encoding="utf-8")
+
+    store.reconcile()
+
+    assert store.get("manual-email")["status"] == "invalid"
+    assert store.get("managed-event")["status"] == "invalid"
 
 
 def test_sort_keeps_missing_values_last_and_id_as_stable_tiebreak(repository):
@@ -295,6 +358,27 @@ def test_event_action_generates_occurrence_uuid_and_calls_local_http(tmp_path):
         server.close()
     assert state == "completed" and reason is None
     assert gateway.events == [({**occurrence["snapshot"]["action"]["event"], "event_id": occurrence["event_id"]}, True)]
+
+
+def test_email_check_action_uses_mcp_runtime_entry_without_agent(tmp_path, monkeypatch):
+    root = tmp_path / "instance"; root.mkdir(); runtime = tmp_path / "mcp-python"; runtime.write_text("", encoding="utf-8")
+    observed = {}
+    class Process:
+        returncode = 0
+        def __init__(self, command, **kwargs): observed.update(command=command, kwargs=kwargs); self.stdout = self.stderr = None
+        def poll(self): return 0
+        def communicate(self, timeout): return b'{"ok":true,"result":{"processed":0}}', b""
+    class Group:
+        def __init__(self, process): pass
+        def close(self): pass
+    monkeypatch.setattr("onmyoji_daemon.task_scheduler.actions.mcp_runtime_python", lambda _root: runtime)
+    monkeypatch.setattr("onmyoji_daemon.task_scheduler.actions.subprocess.Popen", Process)
+    monkeypatch.setattr("onmyoji_daemon.task_scheduler.actions.ServiceProcessGroup", Group)
+    occurrence = {"snapshot": {"action": {"type": "email_check", "account": "default", "timeout_seconds": 300}}}
+    state, result, reason = email_check_action(root, occurrence, threading.Event(), before_dispatch=lambda: True)
+    assert state == "completed" and reason is None and result["result"]["processed"] == 0
+    assert observed["command"][:4] == [str(runtime), "-B", "-m", "onmyoji_daemon.mcp.email.monitor"]
+    assert "agent_notification" not in " ".join(observed["command"])
 
 
 def test_service_is_read_only_and_lists_all_ten_sort_fields(tmp_path):

@@ -4,7 +4,7 @@ from __future__ import annotations
 import copy
 from unittest.mock import Mock
 
-from onmyoji_daemon.mcp.email.setup import edit_endpoint, edit_roots, email_menu, manage
+from onmyoji_daemon.mcp.email.setup import edit_endpoint, edit_monitoring, edit_roots, email_menu, manage
 
 
 def state():
@@ -115,3 +115,37 @@ def test_setup_admin_uses_the_private_runtime_and_no_secret_in_arguments(tmp_pat
     assert run.call_args.args[0][0] == "private-python"
     assert run.call_args.args[0][-4:] == ["--action", "authorize-local", "--connection", "smtp"]
     assert Path(run.call_args.kwargs["env"]["PYTHONPATH"]).name == "src"
+
+
+def test_monitoring_setup_collects_interval_instructions_channel_and_policy(tmp_path):
+    config = Mock(root=tmp_path)
+    config.email.return_value = {"accounts": {"default": {"enabled": True, "smtp": {}}}}
+    ui = Mock()
+    ui.flow_choice.side_effect = ["Habilitada", "Telegram", "Nova thread"]
+    ui.ask.side_effect = ["30m", "Resuma somente mensagens que exigem ação.", "-100:42"]
+    value = {"incoming": {"protocol": "imap"}}
+
+    result = edit_monitoring(config, ui, "default", value)
+
+    assert result == {"enabled": True, "interval": "30M", "instructions": "Resuma somente mensagens que exigem ação.",
+                      "response_channel": {"type": "telegram", "value": "-100:42"}, "thread_policy": "new"}
+    ui.screen.assert_not_called()
+
+
+def test_monitoring_setup_refuses_activation_without_incoming(tmp_path):
+    config = Mock(root=tmp_path); ui = Mock(); ui.flow_choice.return_value = "Habilitada"
+    assert edit_monitoring(config, ui, "default", {}) is None
+    ui.result.assert_called_once()
+
+
+def test_monitor_diagnostic_and_rebaseline_use_mcp_runtime(tmp_path, monkeypatch):
+    from onmyoji_daemon.mcp.email.setup import run_monitor_admin
+    from pathlib import Path
+    config = Mock(root=tmp_path); ui = Mock(); ui.ensure_mcp_runtime.return_value = "Pronto"
+    run = Mock(); run.return_value.returncode = 0
+    monkeypatch.setattr("onmyoji_daemon.mcp.email.setup.mcp_runtime_python", lambda root: Path("private-python"))
+    monkeypatch.setattr("onmyoji_daemon.mcp.email.setup.subprocess.run", run)
+    run_monitor_admin(config, ui, "default", rebaseline=True)
+    command = run.call_args.args[0]
+    assert command[:4] == ["private-python", "-B", "-m", "onmyoji_daemon.mcp.email.monitor"]
+    assert command[-1] == "--rebaseline"
