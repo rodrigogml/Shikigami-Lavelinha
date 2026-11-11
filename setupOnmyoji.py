@@ -1070,11 +1070,6 @@ def sync_git_remote(root: Path, remote: str) -> tuple[bool, str]:
         return False, str(error)
 
 
-def _update_sensitive_path(path: str) -> bool:
-    parts = path.replace("\\", "/").casefold().split("/")
-    return parts[0] in {"configs", "sessions", "state", "log", "tmp", "skills", "venv"} or parts[-1] == ".env" or parts[-1].startswith(".env.") or parts[-1].endswith((".kdbx", ".key", ".p12", ".pfx"))
-
-
 def update_upstream(root: Path) -> None:
     """Atualiza somente upstream/main e preserva alterações locais escolhidas pelo operador."""
     flow_heading("Atualizar Onmyōji", "Incorpora a main do upstream à branch atual")
@@ -1103,42 +1098,35 @@ def update_upstream(root: Path) -> None:
                 index += 1
                 if index < len(records): paths.append(records[index])
             index += 1
-        protected = [path for path in paths if _update_sensitive_path(path)]
-        eligible = [path for path in paths if not _update_sensitive_path(path)]
         origin = bool(_git_remote_url(root, "origin"))
         choice = None
+        publish = False
         if paths:
             alert(f"Há {len(paths)} caminho(s) com alterações locais; escolha como preservá-las antes da atualização.")
             for path in paths: note(path)
-            if protected:
-                alert("Alterações operacionais ou potencialmente sensíveis permanecerão locais e não entrarão no novo commit ou stash. O merge só prosseguirá se o Git puder preservá-las; um push também pode publicar commits anteriores.")
+            if origin:
+                alert("Um push pode publicar também commits locais anteriores ainda ausentes no origin.")
             options = (["Salvar em commit e publicar no origin"] if origin else []) + ["Salvar apenas em commit", "Guardar temporariamente em stash"]
-            while True:
-                choice = flow_choice("Alterações locais", options, "Guardar temporariamente em stash")
-                if choice is None: note("Atualização cancelada; alterações locais preservadas."); return
-                if "commit" not in choice.casefold() or eligible: break
-                alert("Não há alterações versionáveis para um commit. Escolha stash para preservar os arquivos locais durante a atualização ou cancele.")
+            choice = flow_choice("Alterações locais", options, "Guardar temporariamente em stash")
+            if choice is None: note("Atualização cancelada; alterações locais preservadas."); return
+            publish = "publicar" in choice
         note("Buscando somente a branch main do upstream.")
         _git(root, ["fetch", "--no-tags", "upstream", "+refs/heads/main:refs/remotes/upstream/main"], timeout=180)
         if choice and "commit" in choice.casefold():
             message = prompt("Mensagem do commit [X = cancelar]: ").strip()
             if not message or message.casefold() == "x": note("Atualização cancelada; alterações locais preservadas."); return
-            targets = [":(literal)" + path for path in eligible]
-            _git(root, ["add", "-A", "--", *targets])
-            _git(root, ["commit", "--only", "-m", message, "--", *targets], timeout=180)
-            if "publicar" in choice:
+            _git(root, ["add", "-A"])
+            _git(root, ["commit", "-m", message], timeout=180)
+            if publish:
                 _git(root, ["push", "origin", f"HEAD:refs/heads/{branch}"], timeout=180)
                 result(True, "Commit publicado no origin.")
-        elif choice and eligible:
-            staged = _git(root, ["diff", "--cached", "--name-only", "-z"]).stdout.split("\0")
-            if any(_update_sensitive_path(path) for path in staged if path):
-                raise GitSetupError("Há arquivos operacionais ou sensíveis na área de preparação; o stash do Git poderia incluí-los. Retire-os da preparação preservando os arquivos e tente novamente.")
+        elif choice:
             previous = _git(root, ["rev-parse", "--verify", "refs/stash"], allow_failure=True).stdout.strip()
-            _git(root, ["stash", "push", "--include-untracked", "--message", "onmyoji-update-temporario", "--", *[":(literal)" + path for path in eligible]], timeout=180)
+            _git(root, ["stash", "push", "--include-untracked", "--message", "onmyoji-update-temporario"], timeout=180)
             stash_id = _git_output(root, ["rev-parse", "--verify", "refs/stash"])
             if stash_id == previous:
                 raise GitSetupError("O Git não criou um novo stash; as alterações locais permanecem no lugar.")
-            if not protected and _git(root, ["status", "--porcelain=v1", "--untracked-files=all"]).stdout:
+            if _git(root, ["status", "--porcelain=v1", "--untracked-files=all"]).stdout:
                 raise GitSetupError(f"Há alterações que não puderam ser guardadas, possivelmente em submódulos. O stash {stash_id} foi preservado; restaure-o manualmente antes de continuar.")
         note("Mesclando upstream/main na branch atual.")
         merged = _git(root, ["merge", "--no-edit", "upstream/main"], allow_failure=True, timeout=180)
@@ -1151,6 +1139,8 @@ def update_upstream(root: Path) -> None:
             restored = _git(root, ["stash", "pop", "--index"], allow_failure=True, timeout=180)
             if restored.returncode:
                 raise GitSetupError((_git_detail(restored) or "Não foi possível restaurar o stash.") + f" Resolva os conflitos; o stash {stash_id} foi preservado.")
+        if publish:
+            _git(root, ["push", "origin", f"HEAD:refs/heads/{branch}"], timeout=180)
         result(True, "Atualização do Onmyōji concluída" + (" e alterações locais restauradas." if stash_id else "."))
         note("Reinicie o setup para carregar a versão atualizada.")
     except GitSetupError as error:
@@ -3103,6 +3093,55 @@ def daemon_menu(root: Path) -> None:
             note("O novo limite será usado após reiniciar o gateway Telegram.")
             offer_restart()
 
+    def configure_context_compaction() -> None:
+        """Exibe e altera individualmente os limites de contexto do Telegram."""
+        telegram_path = telegram_configuration_path(root)
+        while True:
+            command([sys.executable, str(script), "--onmyoji-root", str(root), "--action", "bootstrap"], quiet=True)
+            try:
+                limits = tomllib.loads(telegram_path.read_text(encoding="utf-8")).get("limits", {})
+                messages = int(limits.get("context_max_messages", 100))
+                age = int(limits.get("context_max_age_seconds", 7 * 24 * 3600))
+                maximum_bytes = int(limits.get("context_max_bytes", 512 * 1024))
+                interval = int(limits.get("context_compaction_message_interval", 16))
+            except (OSError, tomllib.TOMLDecodeError, TypeError, ValueError):
+                messages, age, maximum_bytes, interval = 100, 7 * 24 * 3600, 512 * 1024, 16
+            screen("Contexto e compactação", "Janela enviada ao Codex e manutenção automática da thread")
+            item("1.", "Mensagens no histórico", f"{messages} · 0 = todas dentro dos demais limites")
+            item("2.", "Idade máxima do histórico", f"{age} s · 0 = sem prazo")
+            item("3.", "Orçamento do histórico", f"{maximum_bytes // 1024} KiB · protege o frame de 4 MiB")
+            item("4.", "Intervalo de compactação", f"{interval} mensagem(ns) · 0 = desabilitado")
+            item("X.", "Voltar")
+            choice = prompt("Opção: ").strip().casefold()
+            if choice in {"x", "\x1b"}:
+                return
+            values = {"1": ("Mensagens no histórico", messages, 0, None), "2": ("Idade máxima do histórico, em segundos", age, 0, None), "3": ("Orçamento do histórico, em KiB", maximum_bytes // 1024, 64, 4095), "4": ("Intervalo de compactação, em mensagens", interval, 0, None)}
+            if choice not in values:
+                alert("Opção inválida. Escolha uma alternativa ou volte.")
+                continue
+            label, current, minimum, maximum = values[choice]
+            raw = prompt(f"{label} [{current}]: ").strip()
+            if raw.casefold() in {"x", "\x1b"}:
+                continue
+            try:
+                selected = int(raw) if raw else current
+            except ValueError:
+                result(False, "Informe um número inteiro.")
+                continue
+            if selected < minimum or maximum is not None and selected > maximum:
+                limit = f"entre {minimum} e {maximum}" if maximum is not None else f"maior ou igual a {minimum}"
+                result(False, f"Informe um valor {limit}.")
+                continue
+            if choice == "1": messages = selected
+            elif choice == "2": age = selected
+            elif choice == "3": maximum_bytes = selected * 1024
+            else: interval = selected
+            changed = command([sys.executable, str(script), "--onmyoji-root", str(root), "--action", "set-context-limits", "--context-max-messages", str(messages), "--context-max-age-seconds", str(age), "--context-max-bytes", str(maximum_bytes), "--context-compaction-message-interval", str(interval)], quiet=True)
+            result(changed.returncode == 0, (changed.stdout or changed.stderr).strip())
+            if changed.returncode == 0:
+                note("A nova configuração será usada após reiniciar o gateway Telegram.")
+                offer_restart()
+
     def convert_stickers_menu() -> None:
         """Converte fontes estáticas sem alterar os originais nem sobrescrever saídas."""
         while True:
@@ -3616,6 +3655,7 @@ def daemon_menu(root: Path) -> None:
             item("9.", "Figurinhas do agente", "Catálogo e explicações de uso")
             item("10.", "Paralelismo de respostas", "Máximo de conversas processadas simultaneamente")
             item("11.", "Entradas durante execução", "Fila, direcionamento e entrega pós-turno condicionada")
+            item("12.", "Contexto e compactação", "Janela enviada ao Codex e manutenção automática da thread")
             print()
             item("X.", "Voltar")
             choice = prompt("Opção: ").strip().casefold()
@@ -3634,6 +3674,7 @@ def daemon_menu(root: Path) -> None:
             elif choice == "10": configure_parallel_responses()
             elif choice == "11":
                 if configure_gateway_execution(root): offer_restart()
+            elif choice == "12": configure_context_compaction()
             else: alert("Opção inválida. Escolha uma das alternativas ou cancele.")
 
     def miniapps_command(*arguments: str) -> subprocess.CompletedProcess[str]:
