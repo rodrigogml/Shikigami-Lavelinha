@@ -2,11 +2,12 @@
 
 Playbook e orientações sobre a organização de lançamentos financeiros e contabeis da Laveli.
 
-## Requisitos
+# Requisitos
 - A empresa utiliza o ERP da Omie para lançamentos financeiros e contábeis.
 	- Para integração com o Omie, use o perfil lógico `laveli` (ou o padrão se não houver opção de escolha) do MCP `Omie`. Esse perfil é um pré-requisito local: se não estiver configurado, oriente a configurá-lo na skill Omie e peça a intervenção necessária. Não suponha caminhos, crie credenciais, nem tente descobrir ou preencher configurações locais.
+	- Sempre que uma chamada ao MCP da Omie falhar ou retornar erro exiba para o usuário uma mensagem de relatório explicado exatamente a chamada e os parâmetros passados.
 
-## Mandamentos
+# Mandamentos
 
 As instruções a seguir devem ser tratadas como mandamentos obrigatórios em toda a operação. Só podem ser sobrepostos com explicita autorização do usuário.
 - A Omie é a fonte de verdade dos dados financeiros e contábeis.
@@ -17,7 +18,20 @@ Omie:
 - Lançamentos na Omie devem sempre ser criados com a flag de 'Conciliado' marcada como falso. Apenas o usuário pode alterar a conciliação para verdadeiro (conciliado).
 - Ao alterar um lançamento já marcado como 'Conciliado' você voltar o lançamento para 'Não Conciliado'.
 
-# Organização do Financeiro da Laveli
+# Organização do Financeiro da Laveli x Omie
+
+## Glossário
+
+- **Título a pagar / receber:** objeto da obrigação ou do direito financeiro. Consulte títulos pelos métodos `omie.financeiro.contas_pagar.listar_por_vencimento`, `omie.financeiro.contas_pagar.consultar`, `omie.financeiro.contas_receber.listar_por_vencimento` e `omie.financeiro.contas_receber.consultar`. Identifique o título por `codigo_lancamento_omie` ou `nCodTitulo` e use `valor_documento` como valor documental.
+
+- **Lançamento financeiro:** objeto que registra a movimentação efetiva em uma conta financeira. Consulte-o pelos métodos `omie.financeiro.lancamentos_conta.listar_por_pagamento` e `omie.financeiro.lancamentos_conta.consultar`. Identifique-o por `nCodLanc`; use `cabecalho.nCodCC`, `cabecalho.nValorLanc`, `cabecalho.dDtLanc` e `diversos.cNatureza` para conta, valor, data e natureza.
+
+- **Vínculo título–lançamento:** no lançamento financeiro, `diversos.nCodLancCP` referencia o título a pagar e `diversos.nCodLancCR` referencia o título a receber. Use esses campos para rastrear o lançamento financeiro equivalente a um título.
+
+- **Baixa / pagamento / recebimento:** é o evento que liquida o título. Não trate campos vazios de pagamento no retorno do título como prova de ausência de baixa. Confirme sempre o lançamento financeiro vinculado em `omie.financeiro.lancamentos_conta.consultar`.
+
+- **Lista de movimentos:** os métodos `omie.financeiro.movimentos.listar_por_inclusao`, `omie.financeiro.movimentos.listar_por_alteracao`, `omie.financeiro.movimentos.listar_por_pagamento`, `omie.financeiro.movimentos.listar_por_vencimento` e `omie.financeiro.movimentos.listar_por_previsao` são consultas auxiliares por data e podem retornar dados resumidos de títulos e baixas. Não os use isoladamente para identificar o lançamento financeiro da conta; confirme-o em `omie.financeiro.lancamentos_conta.consultar`.
+
 
 ## Contas Financeiras
 
@@ -31,83 +45,14 @@ A Laveli utiliza as contas listadas a seguir de acordo com as definições descr
 
 - **As contas a seguir devem ser ignoradas, ainda que não estejam inativas no sistema não estão em uso atualmente e não devem ser consideradas em buscas, nem criar movimentações de nenhum tipo!**
 
+
 # Operações Financeiras
 
 ## Lançamentos Financeiros
 
-Antes de criar Lançamentos Financeiros leia as regras definidas `references/howTo-lançamentosFinanceiros.md`.
+Antes de criar ou alterar **Lançamentos Financeiros** leia as regras definidas `references/lançamentosFinanceiros.md`.
 
 
-## Conciliação de Contas
+## Conciliação de Contas Financeiras
 
-O processo de conciliação de contas consiste em conciliar lançamentos e saldo das contas financeiras do sistema e seus extratos.
-
-### Regras Gerais
-
-- Identificar corretamente a conta financeira do sistema a qual o relatório/extrato se relaciona.
-- Limitar a análise ao extrato da instituição e aos lançamentos da mesma conta financeira no sistema.
-- Comparar somente data, valor, natureza, descrição, beneficiário, identificadores e situação da conciliação.
-- Não pesquisar internet, CNPJ, quadro societário, relação entre empresas, cadastros externos ou outras fontes.
-- Quando os dados da conta e do extrato não forem suficientes, manter o grupo em “Com Erros” e solicitar a confirmação do usuário.
-- Somente ampliar a investigação quando o usuário solicitar explicitamente.
-
-### Triagem da Conciliação
-
-Após comparar as movimentações da instituição com os lançamentos do sistema, exibir quatro tabelas:
-- **Prontos - Conciliados**: grupos de conciliação confirmados, sem divergências.
-- **Prontos - Não Conciliados** - grupo de movimentações sem erros que faltam apenas a confirmação de conciliação do usuário no sistema.
-- **Com Erros**: grupos prováveis, mas com divergência de data, valor, natureza, descrição, beneficiário, duplicidade ou outro problema.
-- **Sem Correspondência**: movimentações ou lançamentos que não pertencem a nenhum grupo.
-
-Um grupo pode relacionar uma ou mais movimentações da instituição com um ou mais lançamentos do sistema, em cardinalidade M:N, sendo M e N maiores ou iguais a 1.
-
-Colunas das tabelas:
-- Grupo
-- Movimentações [Instituição]
-- Lançamentos [Sistema]
-- Total [Instituição]
-- Total [Sistema]
-- Diferença
-- Situação ou erro encontrado
-
-Em cada grupo, exibir individualmente:
-- Instituição: data da movimentação, valor e descrição.
-- Sistema: data do lançamento, valor, descrição ou beneficiário e ID.
-
-Regras de exibição
-- Usar datas no formato `DD/MM/AAAA`.
-- Exibir valores em reais, usando `+` para créditos e `-` para débitos.
-- Usar `—` quando não existir registro de um dos lados.
-- Não incluir o mesmo registro em mais de um grupo ou tabela.
-- Ordenar pela data mais antiga de cada grupo.
-- Exibir os totais de cada lado e sua diferença.
-- Grupois de Lançamentos detectados como 'Prontos' e que já estão conciliados não precisam e não devem ser explicitados na mensagem (salvo se perguntado). O foco é sempre no que ainda precisa ser conciliado e nos problemas. Não gaste tempo no que já está certo.
-
-### Passos Sugeridos para Conciliação
-
-Passos a serem sugeridos para concluir a conciliação.
-De regra geral deve-se começar dos que parecem mais fáceis e óbvios, para eliminar os lançamentos e no fim trabalhar com os remanescentes.
-
-#### Prontos - Conciliados
-
-São considerados 'Prontos e Conciliados' as movimentações 
-
-#### Prontos - Não Conciliados
-
-Primeiro lote a ser exibido, os lançamentos que estão prontos e verificados, faltando apenas a marcação de conciliação do usuário no sistema.
-
-#### Com Erros — Divergência Cadastral
-
-- Analisar a divergência somente com os dados do extrato e dos lançamentos da conta no sistema.
-- Quando data, natureza e valor coincidirem, apresentar o grupo como provável correspondência e destacar a diferença de descrição ou beneficiário.
-- Não realizar pesquisa cadastral para tentar comprovar a relação.
-- Mover o grupo para “Prontos — Sem Conciliação” somente após confirmação do usuário. Sem confirmação, manter o grupo em “Com Erros”.
-- Liste todos os registros da seção, mas foque em resolver um por vez.
-
-##### Roteiros para movimentações com erros
-
-###### Movimentações sem par no sistema
-
-1. Verificar se o extrato tem informações sobre nota, favorecido, mesagens com detalhes sobre a transação que possam ser utilizadas.
-2. Em caso de Nota, procurar pela nota utilizando número, referência do favorecido ou mesmo valor que possam ser utilizadas.
-	- Note que notas já com baixa de pagamento e com pagamentos liquidados marcados como conferidos podem ser avisados ao usuário mas não alteradas, pois conciliação indica que o usuário já conferiu com o lançamento de outra data.
+Para realizar conciliação de contas finaceiras siga as instruções de `references/conciliaçãoDeContasFinanceiras.md`.
