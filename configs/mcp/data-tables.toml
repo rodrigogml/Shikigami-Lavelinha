@@ -1,0 +1,5 @@
+schema_version = 1
+schema_authoring_enabled = false
+
+[schemas.laveli_financial_rules]
+enabled = true

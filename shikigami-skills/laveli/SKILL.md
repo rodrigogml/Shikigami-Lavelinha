@@ -9,5 +9,4 @@ description: Conhecimento empresarial da Laveli Engenharia, incluindo dados, cad
 
 Leia os arquivos de instruções a seguir conforme o contexto indicar relevância com as definições de cada um.
 
-- `references/financeiro.md` - Definições de operações financeiras e contábeis, incluindo NFes, NFCes.
-- `references/omie-reference.md` - Detalhamento das operações da Omie, leia antes de realizar operações da Omie que envolvem mais de uma chamada, ou sempre que resultar em erros 500 ou outros sem explicação.
+- `references/financeiro.md` - Definições financeiras e contábeis, incluindo NFes, NFCes. Leitura obrigatória sempre que o contexto incluir o financeiro ou contábil da Laveli.
