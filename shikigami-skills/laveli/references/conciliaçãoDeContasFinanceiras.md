@@ -75,6 +75,6 @@ As **Movimentações Financeiras** são categorizadas da seguinte forma para org
 	- Lançamentos em outras datas próximas que tenham o mesmo valor;
 	- Busca de Notas Fiscais do sistema que tenham os mesmos valores, entradas ou não, com lançamentos já dados baixa ou não;
 	- Considerar lançamentos ou notas com a mesma contraparte, ainda que com valores distintos.
-	- Sugerir a criação de novo lançamento financeiro (ou transferência entre contas financeiras).
+	- Sugerir a criação de novo lançamento financeiro (ou transferência entre contas financeiras) seguindo as regras de **Lançamentos Financeiros** em `references/lançamentosFinanceiros.md`.
 	
-5. A cada **Movimentação Financeira** consolidada ou confirmada voltar no passo 1, reexiba os totais atualizados e avance para a próxima conciliação.
+5. Somente após a consolidação da **Movimentação Financeira** avançar para a próxima. Não cite, mencione ou avance para a próxima conciliação enquanto a atual não for finalizada, ou o usuário solicitar para pular a atual.
