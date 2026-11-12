@@ -26,6 +26,127 @@
       "error_code": "cloudflare_http_error",
       "error": "Cloudflare retornou HTTP 403 durante GET. Confira o API Token administrativo no KeePass, sua validade e os escopos Cloudflare Tunnel (conta) e DNS (zona). O token de execução do conector não substitui o API Token.",
       "finished_at": 1794491796.716416
+    },
+    "89ce2f996a5845018537c01119145769": {
+      "operation_id": "89ce2f996a5845018537c01119145769",
+      "operation": "configure",
+      "state": "succeeded",
+      "created_at": 1794493417.975585,
+      "progress": "concluída",
+      "started_at": 1794493417.9835143,
+      "result": {
+        "configured": true,
+        "provisioned": false,
+        "hostname": "lavelinha.laveli.com.br",
+        "tunnel_id": "",
+        "cloudflared_executable": "/opt/Shikigami-Lavelinha/configs/daemon/services/cloudflare-tunnel/bin/versions/2026.11.0/cloudflared",
+        "cloudflared_available": true,
+        "gateway_url": "https://localhost:39390",
+        "ca_file": "/opt/Shikigami-Lavelinha/configs/daemon/services/gateway/tls/ca.pem",
+        "ingress_ready": false,
+        "activated": true,
+        "managed_version": "2026.11.0",
+        "previous_executable": "cloudflared",
+        "error_code": null,
+        "running": false,
+        "connected": false,
+        "pid": null,
+        "last_error": null
+      },
+      "finished_at": 1794493418.0721912
+    },
+    "2bd0581eba584b14a69d8d44743672d5": {
+      "operation_id": "2bd0581eba584b14a69d8d44743672d5",
+      "operation": "inspect-publication",
+      "state": "failed",
+      "created_at": 1794493421.9773188,
+      "progress": "consultando DNS e procurando publicação existente na conta Cloudflare",
+      "started_at": 1794493421.9853659,
+      "error_code": "cloudflare_http_error",
+      "error": "Cloudflare retornou HTTP 403 durante GET. Confira o API Token administrativo no KeePass, sua validade e os escopos Cloudflare Tunnel (conta) e DNS (zona). O token de execução do conector não substitui o API Token.",
+      "finished_at": 1794493426.3957458
+    },
+    "05fd08140d714829a2c72ee3af146abf": {
+      "operation_id": "05fd08140d714829a2c72ee3af146abf",
+      "operation": "configure",
+      "state": "succeeded",
+      "created_at": 1794493492.124322,
+      "progress": "concluída",
+      "started_at": 1794493492.1323586,
+      "result": {
+        "configured": true,
+        "provisioned": false,
+        "hostname": "lavelinha.laveli.com.br",
+        "tunnel_id": "",
+        "cloudflared_executable": "/opt/Shikigami-Lavelinha/configs/daemon/services/cloudflare-tunnel/bin/versions/2026.11.0/cloudflared",
+        "cloudflared_available": true,
+        "gateway_url": "https://localhost:39390",
+        "ca_file": "/opt/Shikigami-Lavelinha/configs/daemon/services/gateway/tls/ca.pem",
+        "ingress_ready": false,
+        "activated": true,
+        "managed_version": "2026.11.0",
+        "previous_executable": "cloudflared",
+        "error_code": null,
+        "running": false,
+        "connected": false,
+        "pid": null,
+        "last_error": null
+      },
+      "finished_at": 1794493492.2059124
+    },
+    "d388d762638a444c9429063056645de8": {
+      "operation_id": "d388d762638a444c9429063056645de8",
+      "operation": "configure",
+      "state": "succeeded",
+      "created_at": 1794493527.4332488,
+      "progress": "concluída",
+      "started_at": 1794493527.4413033,
+      "result": {
+        "configured": true,
+        "provisioned": false,
+        "hostname": "lavelinha.laveli.com.br",
+        "tunnel_id": "",
+        "cloudflared_executable": "/opt/Shikigami-Lavelinha/configs/daemon/services/cloudflare-tunnel/bin/versions/2026.11.0/cloudflared",
+        "cloudflared_available": true,
+        "gateway_url": "https://localhost:39390",
+        "ca_file": "/opt/Shikigami-Lavelinha/configs/daemon/services/gateway/tls/ca.pem",
+        "ingress_ready": false,
+        "activated": true,
+        "managed_version": "2026.11.0",
+        "previous_executable": "cloudflared",
+        "error_code": null,
+        "running": false,
+        "connected": false,
+        "pid": null,
+        "last_error": null
+      },
+      "finished_at": 1794493527.5284646
+    },
+    "edea95e8e2224779ab1bcddb5552fc3b": {
+      "operation_id": "edea95e8e2224779ab1bcddb5552fc3b",
+      "operation": "inspect-publication",
+      "state": "succeeded",
+      "created_at": 1794493530.6043513,
+      "progress": "concluída",
+      "started_at": 1794493530.612216,
+      "result": {
+        "status": "new",
+        "hostname": "lavelinha.laveli.com.br",
+        "new_origin": "https://localhost:39390",
+        "message": "Nenhum DNS ou Tunnel com este nome foi encontrado; o provisionamento criará uma nova publicação após confirmação."
+      },
+      "finished_at": 1794493532.14945
+    },
+    "d58dd65de75c4d0b9ec84e60b9968397": {
+      "operation_id": "d58dd65de75c4d0b9ec84e60b9968397",
+      "operation": "provision",
+      "state": "failed",
+      "created_at": 1794493537.241773,
+      "progress": "configurando origem única do Gateway",
+      "started_at": 1794493537.253258,
+      "error_code": "invalid_ingress",
+      "error": "Cloudflare retornou uma configuração de ingress inválida.",
+      "finished_at": 1794493541.9215393
     }
   }
 }
