@@ -8,7 +8,11 @@
       "roles": [
         "owner"
       ],
-      "source": "pair"
+      "source": "pair",
+      "language_code": "pt",
+      "command_languages": [
+        "pt"
+      ]
     }
   ]
 }
