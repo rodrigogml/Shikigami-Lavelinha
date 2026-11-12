@@ -31,5 +31,6 @@ Para criar um **Lançamento Financeiro** siga os seguintes passos:
    **Conta:** [nome da conta financeira] (ID da conta financeira no Omie)
    **Tipo do Documento:** [Nome do tipo do documento]
    **Número do Documento:** [Número do documento se existir]
+   **Observações:** [Inclua as observações com as informações pertinentes que deram origem ao lançamento, e no final a frase 'Criado por Lavelinha em dd/mm/aaaa']
    ```
 5. Após confirmação crie o lançamento com os dados aprovados, sempre deixando o novo lançamento no estado sem conciliação.
