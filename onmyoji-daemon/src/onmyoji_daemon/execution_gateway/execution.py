@@ -87,6 +87,12 @@ class ExecutionGateway:
         if prompt and prompt.get("generation") != generation:
             prompt = None
         command = text.split(maxsplit=1)[0].split("@", 1)[0].casefold() if text else ""
+        if is_message and command in {"/login", "/config"} and type(message.get("date")) is int:
+            # A data do Telegram possui resolução de 1 segundo: útil como
+            # aproximação da latência externa, não para microbenchmark.
+            age = time.time() - message["date"]
+            if 0 <= age <= 600:
+                self._diagnostic("menu.inbound_age", stage=command[1:], duration_ms=int(age * 1000))
         protected_password = (session and session.get("phase") == "password") or prompt
         controls = REGISTERED_COMMANDS
         private_control = ("totp_password" if protected_password and command not in controls else "pair_pin" if command == "/pair" else None) if is_message else None
@@ -190,6 +196,13 @@ class ExecutionGateway:
         with self.workers_lock:
             intent = self._totp_intents.pop(source, None)
         self._input_local.totp_intent_token = intent
+        started = time.monotonic()
+        callback_data = str((update.get("callback_query") or {}).get("data") or "")
+        message = update.get("message") or update.get("edited_message") or {}
+        text = str(message.get("text") or "").strip()
+        control = text.split(maxsplit=1)[0].split("@", 1)[0].casefold() if text else ""
+        menu_stage = ("callback" if callback_data.startswith(("cfg:", "lg:", "ag:"))
+                      else control[1:] if control in {"/config", "/login"} else "")
         try:
             if conversation and generation != self._generation(conversation):
                 if json.loads(payload).get("private_control"):
@@ -220,6 +233,8 @@ class ExecutionGateway:
             self.store.ingress_state(source, "uncertain")
             self._diagnostic("input.uncertain", reason="preparation_interrupted")
         finally:
+            if menu_stage:
+                self._diagnostic("menu.dispatch", stage=menu_stage, duration_ms=int((time.monotonic() - started) * 1000))
             if intent:
                 with self.control_state_lock:
                     live = self.totp_sessions.get(conversation)
@@ -304,7 +319,7 @@ class ExecutionGateway:
         if busy and self.api:
             address, topic = self._telegram_address(conversation)
             try:
-                self.deliveries.text(DeliveryOwner(conversation, generation), "receipt:" + inbox, "receipt", inbox, self.api, address, "Mensagem recebida. Ela será encaminhada conforme a política de fila/direcionamento disponível.", protect_content=True, **topic)
+                self.deliveries.text(DeliveryOwner(conversation, generation), "receipt:" + inbox, "receipt", inbox, self.api, address, "Mensagem recebida. Ela será encaminhada conforme a política de fila/direcionamento disponível.", **topic)
             except Exception:
                 self._diagnostic("delivery.uncertain", generation=generation, kind="receipt")
         with self.workers_changed:
@@ -491,7 +506,7 @@ class ExecutionGateway:
 
     def _visible_text(self, active: Any, key: str, kind: str, item: str, text: str, event: dict[str, Any] | None) -> None:
         owner = self._owner(active)
-        values = {"protect_content": True, **active.telegram_topic_values}
+        values = dict(active.telegram_topic_values)
         keys = self.deliveries.plan_text(owner, key, kind, item, active.chat_id, text, **values)
         def send() -> None:
             if active.cancel_requested or kind == "thought" and not self._conversation_settings(active.conversation_id)["share_thoughts"]:
@@ -536,8 +551,10 @@ class ExecutionGateway:
                 self.store.delivery_result(key, "suppressed", reason="thoughts_disabled")
                 continue
             payload = json.loads(raw)
+            # Mensagens pendentes de versões antigas também devem permitir cópia.
+            send_values = {name: value for name, value in payload["values"].items() if name != "protect_content"}
             try:
-                self.deliveries.effect(self._owner(active), key, kind, item, payload, lambda: self.api.send(payload["chat_id"], payload["text"], **payload["values"]), part=part)
+                self.deliveries.effect(self._owner(active), key, kind, item, payload, lambda: self.api.send(payload["chat_id"], payload["text"], **send_values), part=part)
             except DeliveryUncertain:
                 active.progress_failed = True
 

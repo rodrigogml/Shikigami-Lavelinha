@@ -343,11 +343,11 @@ class TelegramApi:
         return destination
     def send_file(self, method: str, chat_id: int, path: Path, field: str, caption: str = "", reply_to: int | None = None, **extra: Any) -> dict[str, Any]:
         boundary = "----Onmyoji" + secrets.token_hex(16); chunks: list[bytes] = []
-        values = {"chat_id": str(chat_id), "protect_content": "true"}
+        values = {"chat_id": str(chat_id)}
         if caption: values["caption"] = caption[:1024]
         if reply_to: values["reply_parameters"] = json.dumps({"message_id": reply_to})
         for key, value in extra.items():
-            if value is not None: values[key] = str(value)
+            if value is not None: values[key] = str(value).lower() if isinstance(value, bool) else str(value)
         for key, value in values.items(): chunks.extend((f"--{boundary}\r\n".encode(), f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(), value.encode("utf-8"), b"\r\n"))
         chunks.extend((f"--{boundary}\r\n".encode(), f'Content-Disposition: form-data; name="{field}"; filename="{path.name}"\r\n'.encode(), b"Content-Type: application/octet-stream\r\n\r\n", path.read_bytes(), b"\r\n", f"--{boundary}--\r\n".encode()))
         request = Request(self.base + method, data=b"".join(chunks), headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
@@ -591,7 +591,7 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
         safe = {key: value for key, value in values.items() if key in allowed and (isinstance(value, (int, float, bool)) or isinstance(value, str) and re.fullmatch(r"[a-zA-Z0-9_.:-]{1,128}", value))}
         if "conversation" in values:
             safe["conversation_hash"] = hashlib.sha256(str(values["conversation"]).encode()).hexdigest()[:20]
-        event = event if re.fullmatch(r"[a-z_.]{1,96}", event) else "gateway.event"
+        event = event if re.fullmatch(r"[a-z_.\_]{1,96}", event) else "gateway.event"
         with self._status_lock:
             state = json_file(self.settings.state_dir / "gateway-status.json", {})
             entries = state.get("diagnostics")
@@ -1068,7 +1068,7 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
             request = event.get("rpc_id", event.get("request_id", secrets.token_urlsafe(18)))
             if active.cancel_requested or active.suppressed: raise RuntimeError("Turno cancelado antes deste envio.")
             try:
-                sent = self.deliveries.text(self._owner(active), f"rpc:{active.process_epoch}:{request}:message", "additional", str(request), self.api, active.chat_id, text, protect_content=bool(arguments.get("protect_content", False)), **active.telegram_topic_values)
+                sent = self.deliveries.text(self._owner(active), f"rpc:{active.process_epoch}:{request}:message", "additional", str(request), self.api, active.chat_id, text, **({"protect_content": True} if arguments.get("protect_content") is True else {}), **active.telegram_topic_values)
             except DeliveryUncertain:
                 active.delivery_failed = True
                 return {"contentItems": [{"type": "inputText", "text": json.dumps({"sent": None, "uncertain": True, "retry_safe": False, "reason": "confirmation_missing"})}], "success": True}
@@ -1090,10 +1090,12 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
             rendered = render_html(question)
             if len(rendered) > MAX_MESSAGE_LENGTH: raise RuntimeError("A pergunta do menu excede o limite de uma mensagem Telegram após a formatação.")
             if not self.api: raise RuntimeError("Gateway Telegram indisponível.")
+            started = time.monotonic()
             try:
-                sent = self._tool_effect(active, "menu", {"question": rendered}, lambda: self.api.send(active.chat_id, rendered, parse_mode="HTML", reply_markup=keyboard, protect_content=bool(arguments.get("protect_content", False)), **active.telegram_topic_values))
+                sent = self._tool_effect(active, "menu", {"question": rendered}, lambda: self.api.send(active.chat_id, rendered, parse_mode="HTML", reply_markup=keyboard, **({"protect_content": True} if arguments.get("protect_content") is True else {}), **active.telegram_topic_values))
             except DeliveryUncertain:
                 return {"contentItems": [{"type": "inputText", "text": json.dumps({"sent": None, "selected": None, "uncertain": True, "retry_safe": False, "reason": "menu_confirmation_missing"})}], "success": True}
+            self._diagnostic("menu.publish", stage="agent", duration_ms=int((time.monotonic() - started) * 1000))
             message_id = sent.get("message_id")
             if not isinstance(message_id, int): raise RuntimeError("Telegram não retornou o identificador do menu.")
             session = MenuSession(token, active.chat_id, message_id, normalized, conversation_id=active.conversation_id, generation=active.generation, execution_id=active.execution_id, turn_id=active.turn_id)
@@ -1296,7 +1298,7 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
             if ephemeral:
                 receipts = [self._ephemeral(conversation_id, text)]
             else:
-                receipts = self._send_agent_text(telegram_chat_id, text, protect_content=True, **topic_values)
+                receipts = self._send_agent_text(telegram_chat_id, text, **topic_values)
             if generation != self._generation(conversation_id):
                 for receipt in receipts:
                     message_id = receipt.get("message_id") if isinstance(receipt, dict) else None
@@ -1389,11 +1391,17 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
             return
         command = text.split(maxsplit=1)[0].split("@", 1)[0].casefold() if text else ""
         if command == "/channel":
-            self._delete_received_command(int(chat["id"]), message)
+            self._delete_control_message(int(chat["id"]), message.get("message_id"))
             if sender["id"] in self.contacts.owners():
                 self._channel_menu(conversation_id, chat, sender)
             return
-        if text.startswith("/"): self._delete_received_command(int(chat.get("id") or sender["id"]), message)
+        if text.startswith("/"):
+            target = int(chat.get("id") or sender["id"])
+            if command in {"/login", "/config"}:
+                # Excluir o comando é limpeza, não pré-requisito para mostrar o menu.
+                self._delete_control_message(target, message.get("message_id"))
+            else:
+                self._delete_received_command(target, message)
         if int(chat["id"]) != sender["id"]:
             return
         if command == "/pair":
@@ -1426,7 +1434,7 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
         if command == "/usage":
             self._usage(conversation_id); return
         if command == "/login":
-            self._login(conversation_id, text[len(text.split(maxsplit=1)[0]):].strip()); return
+            self._login(conversation_id); return
         if conversation_id in self.totp_sessions:
             if text.startswith("/"):
                 self._clear_totp_session(conversation_id); self._ephemeral(conversation_id, "Fluxo TOTP cancelado por um novo comando.")
@@ -1480,8 +1488,12 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
         """Caches every delivered group item but only routes explicit authorized invocations."""
         assert self.api
         if text.startswith("/"):
-            self._delete_received_command(int(chat["id"]), message)
-            if text.split(maxsplit=1)[0].split("@", 1)[0].casefold() == "/channel":
+            is_channel_command = text.split(maxsplit=1)[0].split("@", 1)[0].casefold() == "/channel"
+            if is_channel_command:
+                self._delete_control_message(int(chat["id"]), message.get("message_id"))
+            else:
+                self._delete_received_command(int(chat["id"]), message)
+            if is_channel_command:
                 if sender.get("id") in self.contacts.owners():
                     self._channel_menu(conversation_id, chat, sender)
                 return
@@ -1534,6 +1546,22 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
         snapshot, cached_attachments, summary = self._context_snapshot(conversation_id)
         try: self._enqueue_turn(conversation_id, snapshot, cached_attachments, self._turn_context(conversation_id, sender, text, cached_attachments, contains_untrusted_context=summary["contains_untrusted_context"], is_context_snapshot=True, has_location=summary.get("has_location", False)))
         except Exception as error: self._record_error(error)
+
+    def _delete_control_message(self, chat_id: int, message_id: Any) -> None:
+        """Remove controles sem colocar um segundo HTTP na frente do menu."""
+        if type(message_id) is not int or not self.api:
+            return
+        def remove() -> None:
+            try:
+                assert self.api
+                self.api.delete(chat_id, message_id)
+            except Exception as error:
+                self._record_error(f"Não foi possível excluir o controle Telegram: {_telegram_error_detail(error)}")
+                self._diagnostic("menu.delete_failed")
+        if isinstance(self.api, TelegramApi):
+            threading.Thread(target=remove, daemon=True).start()
+        else:
+            remove()
 
     def _delete_received_command(self, chat_id: int, message: dict[str, Any]) -> None:
         """Comandos são controles efêmeros e não devem permanecer no histórico da DM."""
@@ -1605,6 +1633,7 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
                     if self.api: self.api.delete(telegram_chat_id, message_id)
                 except Exception: self._record_error("Não foi possível remover um controle de configuração encerrado.")
         previous = int(session["message_id"])
+        started = time.monotonic()
         if not current():
             invalidate(previous)
             raise DeliverySuppressed("O controle pertence a uma geração encerrada.")
@@ -1618,7 +1647,7 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
             invalidate(previous)
             raise DeliverySuppressed("A conversa foi reiniciada antes de atualizar o controle.")
         if "direct_messages_topic_id" in topic_values:
-            sent = self.api.send(telegram_chat_id, text, protect_content=True, reply_markup=keyboard, **topic_values)
+            sent = self.api.send(telegram_chat_id, text, reply_markup=keyboard, **topic_values)
             message_id = sent.get("message_id") if isinstance(sent, dict) else None
             if not isinstance(message_id, int) or isinstance(message_id, bool): raise TelegramApiError("Telegram não retornou o identificador da nova mensagem de configuração.")
             with self.database_lock:
@@ -1635,6 +1664,7 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
             if not current():
                 invalidate(previous)
                 raise DeliverySuppressed("A conversa foi reiniciada durante a atualização do controle.")
+        self._diagnostic("menu.render", stage="config", duration_ms=int((time.monotonic() - started) * 1000))
 
     def _close_config_with_error(self, chat_id: int, token: str, session: dict[str, Any], action: str, error: Exception | str) -> None:
         """Finaliza uma sessão quebrada e devolve ao owner o motivo útil da falha."""
@@ -1685,7 +1715,9 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
             settings = self._conversation_settings(chat_id)
         token = secrets.token_urlsafe(8)
         text, keyboard = self._config_keyboard(token, settings, voice_available=self.settings.voice_enabled, execution_available=self.settings.owner_execution_preferences, allowed_models=self.settings.owner_allowed_models, allowed_efforts=self.settings.owner_allowed_efforts)
+        started = time.monotonic()
         sent = self._ephemeral(chat_id, text, 180, reply_markup=keyboard)
+        self._diagnostic("menu.publish", stage="config", duration_ms=int((time.monotonic() - started) * 1000))
         message_id = sent.get("message_id") if isinstance(sent, dict) else None
         if not isinstance(message_id, int) or isinstance(message_id, bool): return
         with self.database_lock:
@@ -1811,8 +1843,9 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
     def _ephemeral(self, chat_id: int, text: str, seconds: float = 8, **values: Any) -> dict[str, Any]:
         assert self.api
         telegram_chat_id, topic_values = self._telegram_address(str(chat_id))
-        protect_content = bool(values.pop("protect_content", True))
-        message = self.api.send(telegram_chat_id, text, protect_content=protect_content, **topic_values, **values)
+        if values.pop("protect_content", False):
+            values["protect_content"] = True
+        message = self.api.send(telegram_chat_id, text, **topic_values, **values)
         message_id = message.get("message_id")
         if isinstance(message_id, int): self._schedule_delete(telegram_chat_id, message_id, seconds)
         return message
@@ -2019,6 +2052,7 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
         if not isinstance(chat.get("id"), int): chat = {**chat, "id": chat_id}
         conversation_id = self._conversation_id(chat, message)
         data = str(callback.get("data") or ""); parts = data.split(":")
+        received_at = time.monotonic()
         def acknowledge() -> None:
             try:
                 acknowledgement = getattr(self.api, "answer_callback", None)
@@ -2026,6 +2060,9 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
                 else: self.api.call("answerCallbackQuery", {"callback_query_id": callback["id"]})
             except Exception as error:
                 self._record_error(error); self._diagnostic("callback.ack_failed", conversation=str(conversation_id), error=_telegram_error_detail(error))
+            finally:
+                if parts[0] in {"lg", "cfg", "ag"}:
+                    self._diagnostic("menu.callback_ack", stage=parts[0], duration_ms=int((time.monotonic() - received_at) * 1000))
         threading.Thread(target=acknowledge, daemon=True).start()
         if len(parts) == 3 and parts[0] == "ag":
             try: index = int(parts[2])
@@ -2037,11 +2074,26 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
                     session.selected = session.options[index]; session.completed.set()
             if not valid: self._ephemeral(conversation_id, "Seleção inválida ou expirada.")
             return
-        if len(parts) == 3 and parts[0] == "cfg":
-            with self.config_lock: session = self.config_sessions.get(parts[1])
+        if len(parts) == 3 and parts[0] in {"cfg", "lg"}:
+            if parts[0] == "cfg":
+                with self.config_lock: session = self.config_sessions.get(parts[1])
+                session_conversation = str(session["chat_id"]) if session else ""
+            else:
+                with self._login_menu_lock: session = self._login_menus.get(parts[1])
+                session_conversation = str(session["conversation"]) if session else ""
             if session and session.get("message_id") == message.get("message_id"):
-                expected_chat_id, _topic_values = self._telegram_address(str(session["chat_id"]))
-                if expected_chat_id == int(chat["id"]): conversation_id = str(session["chat_id"])
+                expected_chat_id, _topic_values = self._telegram_address(session_conversation)
+                # Se o callback traz a identificação explícita do tópico,
+                # nunca permitir que o token redirecione a ação para outro.
+                explicit_topic = ("direct_messages_topic" in message or "message_thread_id" in message)
+                if expected_chat_id == int(chat["id"]) and (not explicit_topic or conversation_id == session_conversation):
+                    conversation_id = session_conversation
+        if len(parts) == 3 and parts[0] == "lg":
+            if isinstance(self.api, TelegramApi):
+                threading.Thread(target=self._login_menu_callback, args=(conversation_id, callback, parts), daemon=True).start()
+            else:
+                self._login_menu_callback(conversation_id, callback, parts)
+            return
         if len(parts) == 3 and parts[0] == "cfg" and isinstance(self.api, TelegramApi):
             threading.Thread(target=self._config_callback, args=(conversation_id, callback, parts), daemon=True).start(); return
         if self._config_callback(conversation_id, callback, parts): return
@@ -2055,9 +2107,9 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
                 with self.control_state_lock:
                     selected = self.totp_sessions.get(conversation_id)
                     return valid and (selected is None if cleared else selected is session and session.get("token") == token)
-        def publish(text: str, seconds: float = 8, *, protect: bool = True, cleared: bool = False) -> bool:
+        def publish(text: str, seconds: float = 8, *, cleared: bool = False) -> bool:
             if not current(cleared=cleared): return False
-            sent = self._ephemeral(conversation_id, text, seconds, protect_content=protect)
+            sent = self._ephemeral(conversation_id, text, seconds)
             identifier = sent.get("message_id") if isinstance(sent, dict) else None
             valid = current(cleared=cleared)
             if not valid and isinstance(identifier, int):
@@ -2095,7 +2147,7 @@ class Gateway(TelegramLogin, NotificationIngress, TelegramExecution, TelegramCha
                     session["phase"] = "delivering"
             self._delete_totp_messages(conversation_id, session)
             remaining = 30 - (int(time.time()) % 30)
-            if publish(code, remaining + 5, protect=False): publish(f"Expira em {remaining} segundos.", remaining + 5)
+            if publish(code, remaining + 5): publish(f"Expira em {remaining} segundos.", remaining + 5)
             self._clear_totp_session(conversation_id, expected_session=session)
         except Exception:
             self._record_error("Não foi possível obter o código do controle privado TOTP.")
