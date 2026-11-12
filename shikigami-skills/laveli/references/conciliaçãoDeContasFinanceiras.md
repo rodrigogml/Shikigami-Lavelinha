@@ -82,4 +82,5 @@ As **Movimentações Financeiras** são categorizadas da seguinte forma para org
 		3. Corrigir o lançamento de quitação de uma nota, ainda que marcado como conciliado em período fora do analisado em que não se pôde confirmar a que a conciliação esteja correta. Neste caso destacar que o lançamento já está consolidado em que não está no período sendo fechado, a alteração da data pode 'desconciliar' outro período já fechado.
 		4. Sugerir a criação de novo lançamento financeiro (ou transferência entre contas financeiras) seguindo as regras de **Lançamentos Financeiros** em `references/lançamentosFinanceiros.md`.
 	
-5. Somente após a consolidação da **Movimentação Financeira** avançar para a próxima. Não cite, mencione ou avance para a próxima conciliação enquanto a atual não for finalizada, ou o usuário solicitar para pular a atual. Uma vez que uma conciliação seja confirmada com sucesso, já avance para a próxima.
+5. Assim que a consolidação da **Movimentação Financeira** for cadastrada e confirmada, ou tenha sido 'pulada' pelo usuário. Já organize a próxima conciliação, exiba seu formulário e definições pendentes ou sujeitas a confirmação para avanço rápido.
+	- Não cite, mencione ou avance para a próxima conciliação enquanto a atual não for decidida.

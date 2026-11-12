@@ -14,6 +14,7 @@ Regras dos lançamentos financeiros.
 - Se não houver regra cadastrada para a categoria, ou se `usage_scope` não for suficiente para confirmar a categoria, o agente deve solicitar orientação ao usuário antes de criar o lançamento.
 - **Lançamentos Financeiros** vinculados a **Títulos de Pagamento/Recebimento** devem ter seus valores coerentes com os pagamentos/liquidações desses títulos.
 - **Lançamentos Financeiros** relacionados a Notas fiscais não devem ser criados 'soltos'. Devem sempre seguir o relacionamento: Entrada da Nota -> Título de Contas a Pagar -> Quitação da Conta com Lançamento Financeiro.
+- O campo número de documento só pode ser utilizado para número de NFe, Fatura, e outros números até 20 caracteres. Códigos de barra e representação numéricas de Boleto e outras guias devem ser salvas no campo de observações.
 
 # Criação de Lançamentos Financeiros
 
@@ -21,7 +22,7 @@ Para criar um **Lançamento Financeiro** siga os seguintes passos:
 1. Levante todos os dados necessários;
 2. Avalie a categoria em que o **Laçamento Financeiro** se encaixa, considerando sua natureza de Crédito/Débito;
 3. Valide o preenchimento dos campos `projeto`, `counterparty` e `department` seguindo as regras de validação definidos na tabela `category_rules` citadas acima.
-4. Exiba o lançamento a ser criado para aprovação do usuário no formato do formulário:
+4. Exiba o lançamento a ser criado para aprovação do usuário sempre no formato do formulário a seguira. Mesmo que alguns campos ainda não estejam prontos ou sejam alterados, sempre exiba o formulário completo para que se for aprovado não seja necessário exibir outra mensagem com o formulário para confirmação.
    ```
    **Data:** [formato dd/mm/aaaa]
    **Valor:** [utilizando + ou - para indicar crédito ou débito]

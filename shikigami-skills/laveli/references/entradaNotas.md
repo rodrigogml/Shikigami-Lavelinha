@@ -27,3 +27,12 @@
 8. Após aprovação, atualizar e concluir a entrada da NF-e, gerando o título de contas a pagar.
 
 9. A quitação do título é uma etapa posterior que não faz parte da entrada/confirmação da nota. Pode ser considerada junto das ações de conciliação, pagamento e outras. Não realizar a quitação sem autorização ou instrução como parte da entrada da nota. Título “atrasado” pode ser esperado quando a nota possui vencimento anterior à data atual; isso não é motivo, por si só, para quitá-lo.
+
+
+## Etapas da NFe
+
+A Omie controla a 'Etapa da NFe' por números do atributo `etapa`, sendo:
+ - Faturada pelo Fornecedor;
+60 - Recebido;
+80 - Conferido;
+
