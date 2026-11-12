@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "operations": {
+    "90c745b9873844c58f40be2f37b6d04c": {
+      "operation_id": "90c745b9873844c58f40be2f37b6d04c",
+      "operation": "install-cloudflared",
+      "state": "succeeded",
+      "created_at": 1794491786.1150608,
+      "progress": "concluída",
+      "started_at": 1794491786.1251776,
+      "result": {
+        "version": "2026.11.0",
+        "digest": "sha256:51f7c68b57ed7269164075d7e789efce5b59355982f06392deeb037d982a51fd",
+        "executable": "/opt/Shikigami-Lavelinha/configs/daemon/services/cloudflare-tunnel/bin/versions/2026.11.0/cloudflared",
+        "previous_executable": "cloudflared"
+      },
+      "finished_at": 1794491790.2135496
+    },
+    "c58dc8d59bf048369f32d4ec322dd637": {
+      "operation_id": "c58dc8d59bf048369f32d4ec322dd637",
+      "operation": "inspect-publication",
+      "state": "failed",
+      "created_at": 1794491796.3761501,
+      "progress": "consultando DNS e procurando publicação existente na conta Cloudflare",
+      "started_at": 1794491796.3842576,
+      "error_code": "cloudflare_http_error",
+      "error": "Cloudflare retornou HTTP 403 durante GET. Confira o API Token administrativo no KeePass, sua validade e os escopos Cloudflare Tunnel (conta) e DNS (zona). O token de execução do conector não substitui o API Token.",
+      "finished_at": 1794491796.716416
+    }
+  }
+}
