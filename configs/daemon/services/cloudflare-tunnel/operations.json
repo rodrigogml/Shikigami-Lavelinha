@@ -327,6 +327,63 @@
       "error_code": "recovery_verification_failed",
       "error": "A Cloudflare não confirmou a origem esperada. O backup foi preservado; confira a publicação antes de tentar novamente ou restaurar.",
       "finished_at": 1794497485.03736
+    },
+    "0753c71e6d3a4f82b00c107845992ff7": {
+      "operation_id": "0753c71e6d3a4f82b00c107845992ff7",
+      "operation": "inspect-publication",
+      "state": "succeeded",
+      "created_at": 1794502982.035398,
+      "progress": "concluída",
+      "started_at": 1794502982.0437856,
+      "result": {
+        "status": "existing",
+        "preview_id": "ecc03da31b9a46408a505dfb11cdb0a9",
+        "hostname": "lavelinha.laveli.com.br",
+        "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+        "token_verification": "active",
+        "tunnel_name": "onmyoji-gateway",
+        "configured_tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+        "current_origin": "https://localhost:39390",
+        "new_origin": "https://localhost:39390",
+        "dns_action": "reuse",
+        "configuration_changes": false,
+        "message": "Publicação existente encontrada. O setup pode reutilizar o Tunnel e aplicar a origem e a CA deste Gateway, sem excluir o Tunnel. A leitura e o token de execução foram validados; permissões de escrita serão confirmadas pela API ao aplicar."
+      },
+      "finished_at": 1794502987.1582508
+    },
+    "417a630ccc464b9fa651817f0ae04af1": {
+      "operation_id": "417a630ccc464b9fa651817f0ae04af1",
+      "operation": "adopt-publication",
+      "state": "succeeded",
+      "created_at": 1794502991.431389,
+      "progress": "concluída",
+      "started_at": 1794502991.4395623,
+      "result": {
+        "preview_id": "ecc03da31b9a46408a505dfb11cdb0a9",
+        "hostname": "lavelinha.laveli.com.br",
+        "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+        "message": "Tunnel existente reutilizado; origem HTTPS e CA confirmadas pela Cloudflare. Backup disponível para restauração explícita.",
+        "status": {
+          "configured": true,
+          "provisioned": true,
+          "hostname": "lavelinha.laveli.com.br",
+          "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+          "cloudflared_executable": "/opt/Shikigami-Lavelinha/configs/daemon/services/cloudflare-tunnel/bin/versions/2026.11.0/cloudflared",
+          "cloudflared_available": true,
+          "gateway_url": "https://localhost:39390",
+          "ca_file": "/opt/Shikigami-Lavelinha/configs/daemon/services/gateway/tls/ca.pem",
+          "ingress_ready": true,
+          "activated": true,
+          "managed_version": "2026.11.0",
+          "previous_executable": "cloudflared",
+          "error_code": null,
+          "running": true,
+          "connected": false,
+          "pid": 695115,
+          "last_error": null
+        }
+      },
+      "finished_at": 1794502996.9720774
     }
   }
 }

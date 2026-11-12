@@ -9,10 +9,10 @@
     "enabled": false
   },
   "gateway": {
-    "enabled": false
+    "enabled": true
   },
   "cloudflare-tunnel": {
-    "enabled": false
+    "enabled": true
   },
   "task-scheduler": {
     "enabled": false
