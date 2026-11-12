@@ -496,6 +496,34 @@
         "last_error": null
       },
       "finished_at": 1794506903.5169642
+    },
+    "d6107ba756044a6fbcd331c2b8a8bece": {
+      "operation_id": "d6107ba756044a6fbcd331c2b8a8bece",
+      "operation": "activate",
+      "state": "succeeded",
+      "created_at": 1794524418.5711493,
+      "progress": "concluída",
+      "started_at": 1794524418.5808673,
+      "result": {
+        "configured": true,
+        "provisioned": true,
+        "hostname": "lavelinha.laveli.com.br",
+        "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+        "cloudflared_executable": "/opt/Shikigami-Lavelinha/configs/daemon/services/cloudflare-tunnel/bin/versions/2026.11.0/cloudflared",
+        "cloudflared_available": true,
+        "gateway_url": "https://localhost:39390",
+        "ca_file": "/opt/Shikigami-Lavelinha/configs/daemon/services/gateway/tls/ca.pem",
+        "ingress_ready": true,
+        "activated": true,
+        "managed_version": "2026.11.0",
+        "previous_executable": "cloudflared",
+        "error_code": null,
+        "running": true,
+        "connected": false,
+        "pid": 883752,
+        "last_error": null
+      },
+      "finished_at": 1794524420.6490672
     }
   }
 }
