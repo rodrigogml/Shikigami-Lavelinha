@@ -41,8 +41,11 @@ Omie:
 A Laveli utiliza as contas listadas a seguir de acordo com as definições descritas:
 - **BTG** - Conta Corrente — `nCodCC: 8382785861` — Conta corrente principal da empresa, utilizada para o pagamento de boletos, pix, recebimentos de clientes, etc.
 	- Banco: BTG (208), Agência: 0050, Conta Corrente: 558726-9.
+	- Lançamentos nessa conta são esperados que hajam nota fiscal, fatura ou algum outro documento contábil válido (guias de impostos, contra-cheques, etc.)
 - **Caixinha** — `nCodCC: 8382785479` — Usada para lançamentos de contas cujo fornecedor/prestador não consegue apresentar um documento fiscal válido para a contabilidade (nota, cuopm, fatura, RPA, etc.). Essa conta é utilizada para lançamentos em espécie ou outras movimentações que não bancárias;
+	- Lançamentos nessa conta não existem documentos contábeis válidos.
 - **Caixinha - MP** — `nCodCC: 8983541466` — Mesma finalidade/caso da conta `Caixinha`, porém essas trasações ocorrem em uma conta bancária do MP (Mercado Pago).
+	- Lançamentos nessa conta não existem documentos contábeis válidos.
 - **NuBank - Caixa Reserva** — `nCodCC: 8697957173` — Representa uma aplicação realizada no banco NuBank. De regra geral só deve conter movimentações de aporte, resgate, rendimentos, e lançamentos de impostos relacionados ao investimento como IRRF e IOF.
 - **NuBank - MasterCard** — `nCodCC: 8785885875` — Representa o cartão da empresa. Os lançamentos são realizados conforme a compra: Lançando o valor total da compra na data da transação. Não lançamos as parcelas separadamente com datas futuras. O pagamento da fatura do cartão é lançado como uma transferência entre esta e a conta em que a fatura foi paga (Geralmenta o BTG).
 

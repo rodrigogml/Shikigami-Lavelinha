@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "preview_id": "32160446a2fc41afb13d45d7055beecd",
+  "created_at": 1794497477.1982694,
+  "state": "failed",
+  "settings_before": {
+    "schema_version": 1,
+    "account_id": "a1af4dc18a790def39a9f82eedc243e2",
+    "zone_id": "96bde9b21fe18de78e67b86718b9a0a5",
+    "hostname": "lavelinha.laveli.com.br",
+    "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+    "tunnel_name": "onmyoji-gateway",
+    "credential_profile": "default",
+    "credential_entry_path": "Lavelinha/Serviço/CloudflareTunnel:APIToken",
+    "credential_field": "password",
+    "cloudflared_executable": "/opt/Shikigami-Lavelinha/configs/daemon/services/cloudflare-tunnel/bin/versions/2026.11.0/cloudflared",
+    "gateway_url": "https://localhost:39390",
+    "ca_file": "/opt/Shikigami-Lavelinha/configs/daemon/services/gateway/tls/ca.pem",
+    "managed_version": "2026.11.0",
+    "managed_digest": "sha256:51f7c68b57ed7269164075d7e789efce5b59355982f06392deeb037d982a51fd",
+    "install_directory": "/opt/Shikigami-Lavelinha/configs/daemon/services/cloudflare-tunnel/bin",
+    "previous_executable": "cloudflared",
+    "previous_version": "",
+    "previous_digest": "",
+    "timeout_seconds": 30
+  },
+  "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+  "tunnel_name": "onmyoji-gateway",
+  "remote_before": {
+    "config": {
+      "ingress": [
+        {
+          "service": "http_status:404"
+        }
+      ]
+    }
+  },
+  "remote_expected": {
+    "config": {
+      "ingress": [
+        {
+          "hostname": "lavelinha.laveli.com.br",
+          "service": "https://localhost:39390",
+          "originRequest": {
+            "caPool": "/opt/Shikigami-Lavelinha/configs/daemon/services/gateway/tls/ca.pem",
+            "noTLSVerify": false
+          }
+        },
+        {
+          "service": "http_status:404"
+        }
+      ]
+    }
+  },
+  "dns_before": null,
+  "ca_sha256": "8cecd381c9bf7387f35870b19087116daf3913605b0e171d0fb815909a848495",
+  "dns_created": {
+    "id": "84f571a9e47e1e156f021e02d32f5ba9",
+    "type": "CNAME",
+    "name": "lavelinha.laveli.com.br",
+    "content": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b.cfargotunnel.com",
+    "proxied": true
+  },
+  "remote_write_attempted": true
+}

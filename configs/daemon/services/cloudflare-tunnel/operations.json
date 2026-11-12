@@ -293,6 +293,40 @@
       "error_code": "dns_conflict",
       "error": "A Cloudflare recusou criar o CNAME (81053: já existe A/AAAA/CNAME com o mesmo nome). Consulta por hostname continua sem retornar registros. Listagem completa da zona não encontrou registro do hostname. O Zone ID aponta para outro domínio; revise a zona configurada. Nenhum DNS foi removido ou substituído. Confira registros, zona e eventuais DNS gerenciados na Cloudflare antes de tentar novamente.",
       "finished_at": 1794496821.7736697
+    },
+    "2b55ed6cb05a4ecd88102979d571af11": {
+      "operation_id": "2b55ed6cb05a4ecd88102979d571af11",
+      "operation": "inspect-publication",
+      "state": "succeeded",
+      "created_at": 1794497472.1974916,
+      "progress": "concluída",
+      "started_at": 1794497472.2057893,
+      "result": {
+        "status": "existing",
+        "preview_id": "32160446a2fc41afb13d45d7055beecd",
+        "hostname": "lavelinha.laveli.com.br",
+        "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+        "token_verification": "active",
+        "tunnel_name": "onmyoji-gateway",
+        "configured_tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+        "current_origin": null,
+        "new_origin": "https://localhost:39390",
+        "dns_action": "create",
+        "configuration_changes": true,
+        "message": "Publicação existente encontrada. O setup pode reutilizar o Tunnel e aplicar a origem e a CA deste Gateway, sem excluir o Tunnel. A leitura e o token de execução foram validados; permissões de escrita serão confirmadas pela API ao aplicar."
+      },
+      "finished_at": 1794497477.2068183
+    },
+    "49ba9f91dd96471aa61d94947c1c7c79": {
+      "operation_id": "49ba9f91dd96471aa61d94947c1c7c79",
+      "operation": "adopt-publication",
+      "state": "failed",
+      "created_at": 1794497479.2539597,
+      "progress": "substituindo a origem e a CA da publicação confirmada",
+      "started_at": 1794497479.2615573,
+      "error_code": "recovery_verification_failed",
+      "error": "A Cloudflare não confirmou a origem esperada. O backup foi preservado; confira a publicação antes de tentar novamente ou restaurar.",
+      "finished_at": 1794497485.03736
     }
   }
 }

@@ -40,6 +40,6 @@ Para criar um **Lançamento Financeiro** siga os seguintes passos:
 
 # Criação de Lançamentos Financeiros Pendentes
 
-Quando falta alcuma nota fiscal, alguma informação vital ou alguma pendência que impede o lançamento completo, realizamos os lançamentos da melhor forma que podemos mas deixamos a categoria 'Pendências (Débito)' ou 'Pendências (Crédito)' de acordo com a movimentação.
-No campo de observações marcamos todas as pendências a serem resolvidas para finalizar aquele lançamento.
-Assim, qualquer lançamento com essas categorias indicam que ainda têm alguma pendência.
+- A ausência de alguma nota fiscal (para as contas que existem), alguma pendência ou informação que impeça o lançamento completo, realizamos os lançamentos da melhor forma que podemos mas deixamos a categoria **Pendências (Débito)** ou **Pendências (Crédito)** de acordo com a movimentação.
+- No campo de observações marcamos todas as pendências a serem resolvidas para finalizar aquele lançamento.
+- Assim, qualquer lançamento com essas categorias indicam que ainda têm alguma pendência.

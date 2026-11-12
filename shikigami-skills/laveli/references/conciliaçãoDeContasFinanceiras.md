@@ -47,6 +47,7 @@ As **Movimentações Financeiras** são categorizadas da seguinte forma para org
 - **Prontos - Não Conciliados** - grupo de movimentações que atendem a todas as **Regras da Concialização** mas ainda não marcados como conciliados no sistema.
 - **Com Erros**: grupos prováveis, mas com divergência de data, valor, natureza, descrição, beneficiário, duplicidade ou outro problema.
 - **Sem Correspondência**: movimentações ou lançamentos que não pertencem a nenhum grupo.
+- **Categoria `Pendências`** - grupo de movimentações que contém lançamentos na categoria **Pendências (Crédito)** ou **Pendências (Débito)**.
 
 ## Workflow do Tratamento dos Lançamentos com o Usuário
 
@@ -56,6 +57,7 @@ As **Movimentações Financeiras** são categorizadas da seguinte forma para org
 	**Prontos, mas Não Conciliados:** [Total de Lançamentos Nessa Categoria]
 	**Com Erros:** [Total de Lançamentos Nessa Categoria]
 	**Sem Correspondência:** [Total de Lançamentos Nessa Categoria]
+	**Pendentes:** [Total de Lançamentos com categorias 'Pendentes']
 	```
 
 2. Estabelece a ordem de tratamento das **Movimentações Financeiras** detectadas na ordem das categorias: `Prontos - Não Conciliados`, `Com Erros` e `Sem Correspondência`. Seguindo a ordem cronológica (da mais antiga para a mais nova).
@@ -75,7 +77,7 @@ As **Movimentações Financeiras** são categorizadas da seguinte forma para org
 	1. Procurar nos últimos 90 dias para considerar lançamentos similares em categoria, contraparte, descrição que possam dar pistas de como criar esse lançamento;
 	2. Busca de Notas Fiscais que possam estar relacioandas ao lançamento, considerando valores (exatos ou não), data próximas, contraparte, etc.;
 	3. De acordo com as informações encontradas e analisadas, considere, ordene e exibas as opções encontradas para o usuário.
-		1. Sugerir dar a entrada da Nota pendente, se encontrada;
+		1. Sugerir dar a entrada da Nota, se encontrada;
 		2. Dar baixa em nota ainda pendente de quitação de pagamento para conciliar com o lançamento do extrato;
 		3. Corrigir o lançamento de quitação de uma nota, ainda que marcado como conciliado em período fora do analisado em que não se pôde confirmar a que a conciliação esteja correta. Neste caso destacar que o lançamento já está consolidado em que não está no período sendo fechado, a alteração da data pode 'desconciliar' outro período já fechado.
 		4. Sugerir a criação de novo lançamento financeiro (ou transferência entre contas financeiras) seguindo as regras de **Lançamentos Financeiros** em `references/lançamentosFinanceiros.md`.
