@@ -186,6 +186,79 @@
       "error_code": "invalid_ingress",
       "error": "Cloudflare retornou um ingress inválido; revise a configuração remota.",
       "finished_at": 1794494085.2449656
+    },
+    "91f84d73fca642d4bdaef1718a8f194a": {
+      "operation_id": "91f84d73fca642d4bdaef1718a8f194a",
+      "operation": "configure",
+      "state": "succeeded",
+      "created_at": 1794494873.543732,
+      "progress": "concluída",
+      "started_at": 1794494873.5514882,
+      "result": {
+        "configured": true,
+        "provisioned": true,
+        "hostname": "lavelinha.laveli.com.br",
+        "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+        "cloudflared_executable": "/opt/Shikigami-Lavelinha/configs/daemon/services/cloudflare-tunnel/bin/versions/2026.11.0/cloudflared",
+        "cloudflared_available": true,
+        "gateway_url": "https://localhost:39390",
+        "ca_file": "/opt/Shikigami-Lavelinha/configs/daemon/services/gateway/tls/ca.pem",
+        "ingress_ready": false,
+        "activated": true,
+        "managed_version": "2026.11.0",
+        "previous_executable": "cloudflared",
+        "error_code": null,
+        "running": false,
+        "connected": false,
+        "pid": null,
+        "last_error": null
+      },
+      "finished_at": 1794494873.6467197
+    },
+    "1363c43d98464ad5980b3d2ba32625ba": {
+      "operation_id": "1363c43d98464ad5980b3d2ba32625ba",
+      "operation": "inspect-publication",
+      "state": "failed",
+      "created_at": 1794494876.807038,
+      "progress": "validando a configuração remota do Tunnel encontrado",
+      "started_at": 1794494876.8154624,
+      "error_code": "invalid_ingress",
+      "error": "Cloudflare retornou um ingress inválido; revise a configuração remota.",
+      "finished_at": 1794494879.675056
+    },
+    "786c7d5e184a4ef89efed793bf5176af": {
+      "operation_id": "786c7d5e184a4ef89efed793bf5176af",
+      "operation": "inspect-publication",
+      "state": "succeeded",
+      "created_at": 1794495254.6452737,
+      "progress": "concluída",
+      "started_at": 1794495254.6533058,
+      "result": {
+        "status": "existing",
+        "preview_id": "86616a89c9d7482096c89bc7d2db7544",
+        "hostname": "lavelinha.laveli.com.br",
+        "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+        "token_verification": "active",
+        "tunnel_name": "onmyoji-gateway",
+        "configured_tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+        "current_origin": null,
+        "new_origin": "https://localhost:39390",
+        "dns_action": "create",
+        "configuration_changes": true,
+        "message": "Publicação existente encontrada. O setup pode reutilizar o Tunnel e aplicar a origem e a CA deste Gateway, sem excluir o Tunnel. A leitura e o token de execução foram validados; permissões de escrita serão confirmadas pela API ao aplicar."
+      },
+      "finished_at": 1794495260.052202
+    },
+    "89191bebe2cd4846bb8902037fbbc1f6": {
+      "operation_id": "89191bebe2cd4846bb8902037fbbc1f6",
+      "operation": "adopt-publication",
+      "state": "failed",
+      "created_at": 1794495269.9000504,
+      "progress": "criando o CNAME ausente para o Tunnel reutilizado",
+      "started_at": 1794495269.9083693,
+      "error_code": "cloudflare_http_error",
+      "error": "Cloudflare HTTP 400 em POST /zones/{zone_id}/dns_records. Códigos Cloudflare: 81053. Confira o estado da API Cloudflare e os identificadores configurados.",
+      "finished_at": 1794495272.5334966
     }
   }
 }

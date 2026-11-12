@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "preview_id": "86616a89c9d7482096c89bc7d2db7544",
+  "created_at": 1794495260.043211,
+  "state": "failed",
+  "settings_before": {
+    "schema_version": 1,
+    "account_id": "a1af4dc18a790def39a9f82eedc243e2",
+    "zone_id": "5d531c67db303a9bf221627636d06f8e",
+    "hostname": "lavelinha.laveli.com.br",
+    "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+    "tunnel_name": "onmyoji-gateway",
+    "credential_profile": "default",
+    "credential_entry_path": "Lavelinha/Serviço/CloudflareTunnel:APIToken",
+    "credential_field": "password",
+    "cloudflared_executable": "/opt/Shikigami-Lavelinha/configs/daemon/services/cloudflare-tunnel/bin/versions/2026.11.0/cloudflared",
+    "gateway_url": "https://localhost:39390",
+    "ca_file": "/opt/Shikigami-Lavelinha/configs/daemon/services/gateway/tls/ca.pem",
+    "managed_version": "2026.11.0",
+    "managed_digest": "sha256:51f7c68b57ed7269164075d7e789efce5b59355982f06392deeb037d982a51fd",
+    "install_directory": "/opt/Shikigami-Lavelinha/configs/daemon/services/cloudflare-tunnel/bin",
+    "previous_executable": "cloudflared",
+    "previous_version": "",
+    "previous_digest": "",
+    "timeout_seconds": 30
+  },
+  "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+  "tunnel_name": "onmyoji-gateway",
+  "remote_before": {
+    "config": {
+      "ingress": [
+        {
+          "service": "http_status:404"
+        }
+      ]
+    }
+  },
+  "remote_expected": {
+    "config": {
+      "ingress": [
+        {
+          "hostname": "lavelinha.laveli.com.br",
+          "service": "https://localhost:39390",
+          "originRequest": {
+            "caPool": "/opt/Shikigami-Lavelinha/configs/daemon/services/gateway/tls/ca.pem",
+            "noTLSVerify": false
+          }
+        },
+        {
+          "service": "http_status:404"
+        }
+      ]
+    }
+  },
+  "dns_before": null,
+  "ca_sha256": "8cecd381c9bf7387f35870b19087116daf3913605b0e171d0fb815909a848495"
+}
