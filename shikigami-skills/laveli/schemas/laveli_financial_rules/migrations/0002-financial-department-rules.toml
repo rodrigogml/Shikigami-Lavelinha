@@ -1,0 +1,45 @@
+schema_id = "laveli_financial_rules"
+migration_version = 2
+
+[[operations]]
+type = "create_table"
+table = "department_rules"
+operations = ["create", "get", "list", "update", "delete"]
+
+[[operations.columns]]
+name = "id"
+type = "text"
+primary_key = true
+generated = "uuid"
+
+[[operations.columns]]
+name = "department_name"
+type = "text"
+required = true
+unique = true
+max_length = 200
+
+[[operations.columns]]
+name = "omie_department_code"
+type = "text"
+required = true
+unique = true
+max_length = 100
+
+[[operations.columns]]
+name = "usage_context"
+type = "text"
+required = true
+max_length = 1000
+
+[[operations.columns]]
+name = "omie_structure"
+type = "text"
+required = true
+max_length = 100
+
+[[operations]]
+type = "create_index"
+table = "department_rules"
+name = "idx_department_rules_omie_structure"
+columns = ["omie_structure"]

@@ -12,7 +12,9 @@ Playbook e orientações sobre a organização de lançamentos financeiros e con
 As instruções a seguir devem ser tratadas como mandamentos obrigatórios em toda a operação. Só podem ser sobrepostos com explicita autorização do usuário.
 - A Omie é a fonte de verdade dos dados financeiros e contábeis.
 - Memória deve ser utilizada para guardar instruções criadas a partir de definições e tomadas de decisões realizadas junto com o usuário no contexto atual, para serem utilizadas no futuro como 'memória' e melhor precisão nas tomadas de decisões autônomas futuras.
-- Tabelas de dados devem ser utilizadas conforme as instruções de cada tabela para armazenar dados relevantes e temporários.
+- Tabelas de dados, por meio do MCP `data_tables`, devem ser utilizadas durante a execução das tarefas do financeiro conforme suas instruções:
+	- `laveli_financial_rules.department_rules` mantém os departamentos ativos da Omie. Em cada sincronização, atualize ou inclua os departamentos retornados como ativos e exclua os registros locais cujos códigos não estejam mais ativos na Omie. Durante a inclusão, questione o usuário para confirmar sua sugestão de instrução de uso do departamento.
+	- A tabela `laveli_financial_rules.category_rules` do schema `laveli_financial_rules` contém informações relevantes de uso e relação de preenchimento entre os campos `categoria`, `projeto`, `contraparte` e `departamento`.
 
 Omie:
 - Lançamentos na Omie devem sempre ser criados com a flag de 'Conciliado' marcada como falso. Apenas o usuário pode alterar a conciliação para verdadeiro (conciliado).
