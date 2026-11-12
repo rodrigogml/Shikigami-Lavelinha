@@ -147,6 +147,45 @@
       "error_code": "invalid_ingress",
       "error": "Cloudflare retornou uma configuração de ingress inválida.",
       "finished_at": 1794493541.9215393
+    },
+    "6f6a845a98784e00a1711e774a087975": {
+      "operation_id": "6f6a845a98784e00a1711e774a087975",
+      "operation": "configure",
+      "state": "succeeded",
+      "created_at": 1794494079.3602183,
+      "progress": "concluída",
+      "started_at": 1794494079.368275,
+      "result": {
+        "configured": true,
+        "provisioned": true,
+        "hostname": "lavelinha.laveli.com.br",
+        "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+        "cloudflared_executable": "/opt/Shikigami-Lavelinha/configs/daemon/services/cloudflare-tunnel/bin/versions/2026.11.0/cloudflared",
+        "cloudflared_available": true,
+        "gateway_url": "https://localhost:39390",
+        "ca_file": "/opt/Shikigami-Lavelinha/configs/daemon/services/gateway/tls/ca.pem",
+        "ingress_ready": false,
+        "activated": true,
+        "managed_version": "2026.11.0",
+        "previous_executable": "cloudflared",
+        "error_code": null,
+        "running": false,
+        "connected": false,
+        "pid": null,
+        "last_error": null
+      },
+      "finished_at": 1794494079.433041
+    },
+    "383cb9ea44b14b25a44fb35a95b45634": {
+      "operation_id": "383cb9ea44b14b25a44fb35a95b45634",
+      "operation": "inspect-publication",
+      "state": "failed",
+      "created_at": 1794494082.7332485,
+      "progress": "validando a configuração remota do Tunnel encontrado",
+      "started_at": 1794494082.740998,
+      "error_code": "invalid_ingress",
+      "error": "Cloudflare retornou um ingress inválido; revise a configuração remota.",
+      "finished_at": 1794494085.2449656
     }
   }
 }
