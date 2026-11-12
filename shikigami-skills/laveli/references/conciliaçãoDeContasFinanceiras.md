@@ -71,10 +71,13 @@ As **Movimentações Financeiras** são categorizadas da seguinte forma para org
 		- [Data] - [Valor] - [C|NC para indicar respectivamente se já conciliado ou não] - [Outros detalhes e observações, quando necessário, que justificam a escolha]	
 	```	
 
-4. Para os casos de Erros e Sem correspondência, aumentar a busca de lançamentos e opções que possam justificar e 'resolver a conciliação' para ajudar o usuário a satisfazer a **Movimentação Financeira**. Elenque as informações encontradas em ordem de mais pausíveis para menos pausíveis. Enumere cada uma das opções encontradas para facilitar a referência pelo usuário ao responder e orientar a solução. Exemplos de Busca:
-	- Lançamentos em outras datas próximas que tenham o mesmo valor;
-	- Busca de Notas Fiscais do sistema que tenham os mesmos valores, entradas ou não, com lançamentos já dados baixa ou não;
-	- Considerar lançamentos ou notas com a mesma contraparte, ainda que com valores distintos.
-	- Sugerir a criação de novo lançamento financeiro (ou transferência entre contas financeiras) seguindo as regras de **Lançamentos Financeiros** em `references/lançamentosFinanceiros.md`.
+4. Para os casos de Erros e Sem correspondência, deve ser realizada uma busca de referências no sistema para entender e sugerir a melhor opção de solução de conciliação. Os passos a serem seguidos são:
+	1. Procurar nos últimos 90 dias para considerar lançamentos similares em categoria, contraparte, descrição que possam dar pistas de como criar esse lançamento;
+	2. Busca de Notas Fiscais que possam estar relacioandas ao lançamento, considerando valores (exatos ou não), data próximas, contraparte, etc.;
+	3. De acordo com as informações encontradas e analisadas, considere, ordene e exibas as opções encontradas para o usuário.
+		1. Sugerir dar a entrada da Nota pendente, se encontrada;
+		2. Dar baixa em nota ainda pendente de quitação de pagamento para conciliar com o lançamento do extrato;
+		3. Corrigir o lançamento de quitação de uma nota, ainda que marcado como conciliado em período fora do analisado em que não se pôde confirmar a que a conciliação esteja correta. Neste caso destacar que o lançamento já está consolidado em que não está no período sendo fechado, a alteração da data pode 'desconciliar' outro período já fechado.
+		4. Sugerir a criação de novo lançamento financeiro (ou transferência entre contas financeiras) seguindo as regras de **Lançamentos Financeiros** em `references/lançamentosFinanceiros.md`.
 	
-5. Somente após a consolidação da **Movimentação Financeira** avançar para a próxima. Não cite, mencione ou avance para a próxima conciliação enquanto a atual não for finalizada, ou o usuário solicitar para pular a atual.
+5. Somente após a consolidação da **Movimentação Financeira** avançar para a próxima. Não cite, mencione ou avance para a próxima conciliação enquanto a atual não for finalizada, ou o usuário solicitar para pular a atual. Uma vez que uma conciliação seja confirmada com sucesso, já avance para a próxima.

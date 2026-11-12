@@ -13,6 +13,7 @@ Regras dos lançamentos financeiros.
   - `not_validated`: a tabela não impõe validação ao campo.
 - Se não houver regra cadastrada para a categoria, ou se `usage_scope` não for suficiente para confirmar a categoria, o agente deve solicitar orientação ao usuário antes de criar o lançamento.
 - **Lançamentos Financeiros** vinculados a **Títulos de Pagamento/Recebimento** devem ter seus valores coerentes com os pagamentos/liquidações desses títulos.
+- **Lançamentos Financeiros** relacionados a Notas fiscais não devem ser criados 'soltos'. Devem sempre seguir o relacionamento: Entrada da Nota -> Título de Contas a Pagar -> Quitação da Conta com Lançamento Financeiro.
 
 # Criação de Lançamentos Financeiros
 
@@ -20,7 +21,7 @@ Para criar um **Lançamento Financeiro** siga os seguintes passos:
 1. Levante todos os dados necessários;
 2. Avalie a categoria em que o **Laçamento Financeiro** se encaixa, considerando sua natureza de Crédito/Débito;
 3. Valide o preenchimento dos campos `projeto`, `counterparty` e `department` seguindo as regras de validação definidos na tabela `category_rules` citadas acima.
-4. Exiba o lançamento a ser criado para aprovação do usuário no formato:
+4. Exiba o lançamento a ser criado para aprovação do usuário no formato do formulário:
    ```
    **Data:** [formato dd/mm/aaaa]
    **Valor:** [utilizando + ou - para indicar crédito ou débito]
@@ -33,4 +34,12 @@ Para criar um **Lançamento Financeiro** siga os seguintes passos:
    **Número do Documento:** [Número do documento se existir]
    **Observações:** [Inclua as observações com as informações pertinentes que deram origem ao lançamento, e no final a frase 'Criado por Lavelinha em dd/mm/aaaa']
    ```
+   * Quando os campos do formulário modelo não tiverem valor, mantenha-os no formulário e complete com o texto "--" para indicar 'sem preenchimento'.
 5. Após confirmação crie o lançamento com os dados aprovados, sempre deixando o novo lançamento no estado sem conciliação.
+
+
+# Criação de Lançamentos Financeiros Pendentes
+
+Quando falta alcuma nota fiscal, alguma informação vital ou alguma pendência que impede o lançamento completo, realizamos os lançamentos da melhor forma que podemos mas deixamos a categoria 'Pendências (Débito)' ou 'Pendências (Crédito)' de acordo com a movimentação.
+No campo de observações marcamos todas as pendências a serem resolvidas para finalizar aquele lançamento.
+Assim, qualquer lançamento com essas categorias indicam que ainda têm alguma pendência.

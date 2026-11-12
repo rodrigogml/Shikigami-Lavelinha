@@ -5,7 +5,7 @@ Playbook e orientações sobre a organização de lançamentos financeiros e con
 # Requisitos
 - A empresa utiliza o ERP da Omie para lançamentos financeiros e contábeis.
 	- Para integração com o Omie, use o perfil lógico `laveli` (ou o padrão se não houver opção de escolha) do MCP `Omie`. Esse perfil é um pré-requisito local: se não estiver configurado, oriente a configurá-lo na skill Omie e peça a intervenção necessária. Não suponha caminhos, crie credenciais, nem tente descobrir ou preencher configurações locais.
-	- Sempre que uma chamada ao MCP da Omie falhar ou retornar erro exiba para o usuário uma mensagem de relatório explicado exatamente a chamada e os parâmetros passados.
+	- Sempre que uma chamada ao MCP da Omie falhar ou retornar erro que não seja esperado (diferente de chamadas de validação ou que você reconheça o erro de chamada) exiba para o usuário uma mensagem de relatório explicado exatamente a chamada e os parâmetros passados.
 
 # Mandamentos
 
@@ -19,6 +19,7 @@ As instruções a seguir devem ser tratadas como mandamentos obrigatórios em to
 Omie:
 - Lançamentos na Omie devem sempre ser criados com a flag de 'Conciliado' marcada como falso. Apenas o usuário pode alterar a conciliação para verdadeiro (conciliado).
 - Ao alterar um lançamento já marcado como 'Conciliado' você voltar o lançamento para 'Não Conciliado'.
+- Departamentos 'nós' (que tem departamentos filhos) jamais devem ser utilizados nos lançamentos.
 
 # Organização do Financeiro da Laveli x Omie
 
@@ -48,7 +49,7 @@ A Laveli utiliza as contas listadas a seguir de acordo com as definições descr
 - **As contas a seguir devem ser ignoradas, ainda que não estejam inativas no sistema não estão em uso atualmente e não devem ser consideradas em buscas, nem criar movimentações de nenhum tipo!**
 
 
-# Operações Financeiras
+# Operações Financeiras e Contábeis
 
 ## Lançamentos Financeiros
 
@@ -58,3 +59,8 @@ Antes de criar ou alterar **Lançamentos Financeiros** leia as regras definidas 
 ## Conciliação de Contas Financeiras
 
 Para realizar conciliação de contas finaceiras siga as instruções de `references/conciliaçãoDeContasFinanceiras.md`.
+
+
+## Entrada de Notas
+
+Para realizar entrade de notas siga as instruções de `references/entradaNotas.md`.
