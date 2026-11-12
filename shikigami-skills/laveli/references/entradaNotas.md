@@ -9,15 +9,21 @@
 4. Definir uma única categoria financeira para a NF-e inteira, adequada à natureza da compra.
 5. Definir um único projeto para a NF-e inteira.
 6. Definir os departamentos por item. Cada item deve indicar seu departamento; se um item precisar de mais de um departamento, expor seu rateio individual. A soma dos rateios dos departamentos deve ser exatamente igual ao valor total da NF-e.
-
-7. Antes de concluir, apresentar o formulário de validação com:
-- dados gerais da NF-e;
-- parcela(s);
-- categoria;
-- projeto;
-- itens com descrição, valor final, CFOP de entrada — código e descrição — e departamento/rateio;
-- resumo final dos departamentos.
+7. Antes de concluir, apresentar o formulário de validação no formato a seguir:
+	```
+	**NFe:** [Número da NFe] | **Valor:** [Valor da NFe]
+	**Emissor:** [Nome do Emissor (CPF/CNPJ)]
+	**Projeto:** [Nome do Projeto]
+	**Conta:** [Conta Financeira]
+	**Item:** [Nome do item - Esse Bloco se repete para cada item da nota]
+		**Valor:** [Valor total do Item - que somados representam o valor total da nota]
+		**Departamento:** [Nome do departamento considerado para esse item]
+		**CFOP Saída:** (CFOP e nome na nota)
+		**CFOP Entrada:** (CFOP de entrada considerado para o produto com o tratamento fiscal)
+	**Ratio Departamentos:**
+		**[Nome do Departamento]:** [valor / percentual ratiado nesse departamento - uma linha para cada departamento considerado]
+	```
 
 8. Após aprovação, atualizar e concluir a entrada da NF-e, gerando o título de contas a pagar.
 
-9. A quitação do título é uma etapa posterior: ela cria o lançamento financeiro vinculado na conta utilizada, na data efetiva identificada. Não criar lançamento financeiro avulso para NF-e.
+9. A quitação do título é uma etapa posterior que não faz parte da entrada/confirmação da nota. Pode ser considerada junto das ações de conciliação, pagamento e outras. Não realizar a quitação sem autorização ou instrução como parte da entrada da nota. Título “atrasado” pode ser esperado quando a nota possui vencimento anterior à data atual; isso não é motivo, por si só, para quitá-lo.
