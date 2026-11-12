@@ -259,6 +259,40 @@
       "error_code": "cloudflare_http_error",
       "error": "Cloudflare HTTP 400 em POST /zones/{zone_id}/dns_records. Códigos Cloudflare: 81053. Confira o estado da API Cloudflare e os identificadores configurados.",
       "finished_at": 1794495272.5334966
+    },
+    "39293c73910546dc83a49505a38fd1a3": {
+      "operation_id": "39293c73910546dc83a49505a38fd1a3",
+      "operation": "inspect-publication",
+      "state": "succeeded",
+      "created_at": 1794496803.9072824,
+      "progress": "concluída",
+      "started_at": 1794496803.915563,
+      "result": {
+        "status": "existing",
+        "preview_id": "9e038129bfaf47679a32e80efba5652f",
+        "hostname": "lavelinha.laveli.com.br",
+        "tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+        "token_verification": "active",
+        "tunnel_name": "onmyoji-gateway",
+        "configured_tunnel_id": "84e4fb3c-63da-4a6c-89af-1f843d5bf59b",
+        "current_origin": null,
+        "new_origin": "https://localhost:39390",
+        "dns_action": "create",
+        "configuration_changes": true,
+        "message": "Publicação existente encontrada. O setup pode reutilizar o Tunnel e aplicar a origem e a CA deste Gateway, sem excluir o Tunnel. A leitura e o token de execução foram validados; permissões de escrita serão confirmadas pela API ao aplicar."
+      },
+      "finished_at": 1794496810.1979198
+    },
+    "7d8fd5b6981c48f3888c1e3b31ac1fe1": {
+      "operation_id": "7d8fd5b6981c48f3888c1e3b31ac1fe1",
+      "operation": "adopt-publication",
+      "state": "failed",
+      "created_at": 1794496816.134929,
+      "progress": "criando o CNAME ausente para o Tunnel reutilizado",
+      "started_at": 1794496816.142102,
+      "error_code": "dns_conflict",
+      "error": "A Cloudflare recusou criar o CNAME (81053: já existe A/AAAA/CNAME com o mesmo nome). Consulta por hostname continua sem retornar registros. Listagem completa da zona não encontrou registro do hostname. O Zone ID aponta para outro domínio; revise a zona configurada. Nenhum DNS foi removido ou substituído. Confira registros, zona e eventuais DNS gerenciados na Cloudflare antes de tentar novamente.",
+      "finished_at": 1794496821.7736697
     }
   }
 }
