@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from unittest.mock import Mock
 
 import pytest
@@ -201,6 +202,165 @@ def test_paginated_directory_listing_still_accepts_and_forwards_pagination(tmp_p
     request.assert_called_once_with({}, {}, "departments", "ListarDepartamentos", {"pagina": 2, "registros_por_pagina": 2}, retries=None)
     assert result["dados"] == rows
     assert result["paginacao"] == {"pagina": 2, "total_paginas": 3, "total_registros": 5, "proxima_pagina": 3}
+
+
+@pytest.mark.parametrize("multiple_profiles", [False, True])
+def test_project_tools_explain_name_integration_and_returned_identifiers(tmp_path, multiple_profiles):
+    profiles = [{"name": "empresa", "description": "ERP"}]
+    if multiple_profiles:
+        profiles.append({"name": "filial", "description": "Filial"})
+    tools = OmieFinanceFacade(Configuration(tmp_path)).definitions(profiles)
+    listing = next(tool for tool in tools if tool["name"] == "omie.financeiro.projetos.listar")
+    lookup = next(tool for tool in tools if tool["name"] == "omie.financeiro.projetos.consultar")
+    schema = listing["input_schema"]
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema)
+    profile = {"profile": "empresa"} if multiple_profiles else {}
+
+    validator.validate(profile)
+    validator.validate({**profile, "filtros": {}})
+    validator.validate({**profile, "filtros": {"nome": "STRB15"}})
+    assert set(schema["properties"]["filtros"]["properties"]) == {"nome"}
+    assert "paginacao.proxima_pagina" in listing["description"]
+    for tool in (listing, lookup):
+        assert "codigo" in tool["description"] and "filtros.id" in tool["description"]
+        assert "codInt" in tool["description"] and "somente em nome" in tool["description"]
+    identifiers = lookup["input_schema"]["properties"]["filtros"]["properties"]
+    assert "dados[].codigo" in identifiers["id"]["description"]
+    assert "vazio" in identifiers["codigo_integracao"]["description"]
+
+
+@pytest.mark.parametrize("name", ["STRB15", "Á" * 100, " Projeto com espaços "])
+def test_project_name_filter_is_forwarded_without_changing_its_text(tmp_path, monkeypatch, name):
+    arguments = {"filtros": {"nome": name}, "pagina": 2, "tamanho_pagina": 1, "incluir_dados_omie": True}
+    row = {"codigo": 9000000222, "codInt": "", "nome": name, "inativo": "N"}
+    response = {"pagina": 2, "total_de_paginas": 2, "total_de_registros": 2, "cadastro": [row]}
+    facade = OmieFinanceFacade(Configuration(tmp_path))
+    schema = next(tool["input_schema"] for tool in facade.definitions([{"name": "empresa", "description": "ERP"}]) if tool["name"] == "omie.financeiro.projetos.listar")
+    Draft202012Validator(schema).validate(arguments)
+    _, request = mock_remote(monkeypatch, [deepcopy(response)])
+
+    result = facade.call("omie.financeiro.projetos.listar", arguments, "empresa")
+
+    request.assert_called_once_with({}, {}, "projects", "ListarProjetos", {"pagina": 2, "registros_por_pagina": 1, "nome_projeto": name}, retries=None)
+    assert result["dados"] == [row]
+    assert result["dados_omie"] == response
+    assert result["paginacao"]["proxima_pagina"] is None
+
+
+@pytest.mark.parametrize("name", [None, "", " \t", "X" * 101, 12, True, [], {}])
+def test_invalid_project_names_fail_schema_and_execution_before_access(tmp_path, monkeypatch, name):
+    arguments = {"filtros": {"nome": name}}
+    facade = OmieFinanceFacade(Configuration(tmp_path))
+    schema = next(tool["input_schema"] for tool in facade.definitions([{"name": "empresa", "description": "ERP"}]) if tool["name"] == "omie.financeiro.projetos.listar")
+    assert not Draft202012Validator(schema).is_valid(arguments)
+    profile, request = mock_remote(monkeypatch, [])
+
+    with pytest.raises(OmieError) as error:
+        facade.call("omie.financeiro.projetos.listar", arguments, "empresa")
+
+    assert error.value.code == "invalid_parameter"
+    assert error.value.details["field"] == "filtros.nome"
+    assert error.value.details["retryable"] is False
+    profile.assert_not_called()
+    request.assert_not_called()
+
+
+@pytest.mark.parametrize("resource,filters,field", [
+    ("projetos", {"nome_projeto": "STRB15"}, "nome_projeto"),
+    ("projetos", {"nome": "STRB15", "codigo_integracao": "P1"}, "codigo_integracao"),
+    ("contas_correntes", {"nome": "Conta"}, "nome"),
+    ("categorias", {"codigo": "1.01"}, "codigo"),
+    ("departamentos", {"nome": "Pisos"}, "nome"),
+])
+def test_directory_listings_reject_unsupported_filters_before_access(tmp_path, monkeypatch, resource, filters, field):
+    name = f"omie.financeiro.{resource}.listar"
+    facade = OmieFinanceFacade(Configuration(tmp_path))
+    schema = next(tool["input_schema"] for tool in facade.definitions([{"name": "empresa", "description": "ERP"}]) if tool["name"] == name)
+    assert not Draft202012Validator(schema).is_valid({"filtros": filters})
+    profile, request = mock_remote(monkeypatch, [])
+
+    with pytest.raises(OmieError) as error:
+        facade.call(name, {"filtros": filters}, "empresa")
+
+    assert error.value.code == "invalid_parameter"
+    assert error.value.details["field"] == f"filtros.{field}"
+    if resource == "projetos":
+        assert error.value.details["use_instead"] == ["filtros.nome"]
+    profile.assert_not_called()
+    request.assert_not_called()
+
+
+@pytest.mark.parametrize("spec", [spec for spec in SPECS if not spec.writes], ids=lambda spec: spec.name)
+def test_reads_reject_unknown_top_level_arguments_before_access(tmp_path, monkeypatch, spec):
+    arguments = {"nome_projeto": "STRB15"}
+    if spec.period:
+        arguments["filtros"] = {**PERIOD, **({"conta_corrente_id": 12} if spec.account_required else {})}
+    elif spec.kind == "get":
+        arguments["filtros"] = next(filters for resource, filters, *_ in DETAIL_QUERIES if spec.name == f"omie.financeiro.{resource}.consultar")
+    profile, request = mock_remote(monkeypatch, [])
+
+    with pytest.raises(OmieError) as error:
+        OmieFinanceFacade(Configuration(tmp_path)).call(spec.name, arguments, "empresa")
+
+    assert error.value.code == "invalid_parameter"
+    assert error.value.details["field"] == "nome_projeto"
+    profile.assert_not_called()
+    request.assert_not_called()
+
+
+@pytest.mark.parametrize("resource,endpoint,method", [
+    ("projetos", "projects", "ListarProjetos"),
+    ("contas_correntes", "bank_accounts", "ListarContasCorrentes"),
+    ("categorias", "categories", "ListarCategorias"),
+    ("departamentos", "departments", "ListarDepartamentos"),
+])
+@pytest.mark.parametrize("arguments", [{}, {"filtros": {}}])
+def test_directory_listings_preserve_queries_without_filters(tmp_path, monkeypatch, resource, endpoint, method, arguments):
+    response = {"pagina": 1, "total_de_paginas": 1, "total_de_registros": 0, "cadastro": []}
+    _, request = mock_remote(monkeypatch, [response])
+
+    result = OmieFinanceFacade(Configuration(tmp_path)).call(f"omie.financeiro.{resource}.listar", arguments, "empresa")
+
+    request.assert_called_once_with({}, {}, endpoint, method, {"pagina": 1, "registros_por_pagina": 50}, retries=None)
+    assert result["dados"] == []
+    assert result["paginacao"]["proxima_pagina"] is None
+
+
+def test_project_without_integration_code_can_be_discovered_and_queried_by_id(tmp_path, monkeypatch):
+    """A descoberta percorre páginas e usa codigo, mesmo quando STRB15 existe só em nome."""
+    other = {"codigo": 12, "codInt": "OUTRO", "nome": "STRB15 - filial"}
+    target = {"codigo": 9000000222, "codInt": "", "nome": "STRB15"}
+    pages = [
+        {"pagina": 1, "total_de_paginas": 2, "total_de_registros": 2, "cadastro": [other]},
+        {"pagina": 2, "total_de_paginas": 2, "total_de_registros": 2, "cadastro": [target]},
+    ]
+    _, request = mock_remote(monkeypatch, [*pages, target])
+    facade = OmieFinanceFacade(Configuration(tmp_path))
+
+    first = facade.call("omie.financeiro.projetos.listar", {"filtros": {"nome": "STRB15"}, "tamanho_pagina": 1}, "empresa")
+    second = facade.call("omie.financeiro.projetos.listar", {"filtros": {"nome": "STRB15"}, "pagina": first["paginacao"]["proxima_pagina"], "tamanho_pagina": 1}, "empresa")
+    matches = [row for row in first["dados"] + second["dados"] if row["nome"] == "STRB15"]
+    assert matches == [target]
+    detail = facade.call("omie.financeiro.projetos.consultar", {"filtros": {"id": matches[0]["codigo"]}}, "empresa")
+
+    assert detail["dados"] == [target]
+    assert [call.args[4] for call in request.call_args_list] == [
+        {"pagina": 1, "registros_por_pagina": 1, "nome_projeto": "STRB15"},
+        {"pagina": 2, "registros_por_pagina": 1, "nome_projeto": "STRB15"},
+        {"codigo": 9000000222},
+    ]
+
+
+def test_project_name_filter_preserves_ambiguous_matches_for_the_caller(tmp_path, monkeypatch):
+    rows = [{"codigo": 12, "codInt": "", "nome": "STRB15"}, {"codigo": 13, "codInt": "", "nome": "STRB15"}]
+    response = {"pagina": 1, "total_de_paginas": 1, "total_de_registros": 2, "cadastro": rows}
+    _, request = mock_remote(monkeypatch, [response])
+
+    result = OmieFinanceFacade(Configuration(tmp_path)).call("omie.financeiro.projetos.listar", {"filtros": {"nome": "STRB15"}}, "empresa")
+
+    assert result["dados"] == rows
+    assert request.call_count == 1
 
 
 def test_account_filter_collects_native_pages_before_public_pagination(tmp_path, monkeypatch):
@@ -770,9 +930,10 @@ def test_transaction_write_schemas_publish_exact_fields_and_required_identifiers
         assert not create.is_valid({"confirmar": True, "dados": {key: value for key, value in base.items() if key != missing}})
     without_identifier = {key: value for key, value in base.items() if key != "codigo_integracao"}
     assert not update.is_valid({"confirmar": True, "dados": without_identifier})
-    for missing in without_identifier:
-        incomplete = {key: value for key, value in without_identifier.items() if key != missing}
-        assert not update.is_valid({"confirmar": True, "dados": {**incomplete, "id": 9000000222}})
+    for field, value in without_identifier.items():
+        update.validate({"confirmar": True, "dados": {"id": 9000000222, field: value}})
+    for identifier in ({"id": 9000000222}, {"codigo_integracao": "TEST-LANC-001"}, {"id": 9000000222, "codigo_integracao": "TEST-LANC-001"}):
+        assert not update.is_valid({"confirmar": True, "dados": identifier})
     for identifier in ({"id": 9000000222}, {"codigo_integracao": "TEST-LANC-001"}, {"id": 9000000222, "codigo_integracao": "TEST-LANC-001"}):
         update.validate({"confirmar": True, "dados": {**without_identifier, **identifier}})
 
@@ -829,12 +990,11 @@ def test_valid_direct_transaction_reaches_the_native_contract_without_unrelated_
     assert result["dados"] == [response]
 
 
-@pytest.mark.parametrize("missing", ["identifier", "conta_corrente_id", "data", "valor", "categoria_codigo", "tipo_documento"])
-def test_transaction_update_requires_identity_and_complete_financial_data_before_access(tmp_path, monkeypatch, missing):
-    data = {key: value for key, value in transaction_data().items() if key != "codigo_integracao"}
-    if missing != "identifier":
-        data["id"] = 9000000222
-        del data[missing]
+@pytest.mark.parametrize("data", [
+    {}, {"departamentos": []}, {"id": 9000000222}, {"codigo_integracao": "TEST-LANC-001"},
+    {"id": 9000000222, "codigo_integracao": "TEST-LANC-001"},
+])
+def test_transaction_update_requires_identity_and_a_change_before_access(tmp_path, monkeypatch, data):
     profile, request = mock_remote(monkeypatch, [])
 
     with pytest.raises(OmieError) as error:
@@ -1073,14 +1233,17 @@ def test_rateio_nunca_envia_percentual_e_valor_juntos_omie_727(tmp_path, monkeyp
         }
     else:
         data = {**transaction_data(), "valor": 9599}
-    _, request = mock_remote(monkeypatch, [{"nCodLanc": 9000000222}])
+    responses = [{"nCodLanc": 9000000222}]
+    if operation == TRANSACTION_UPDATE:
+        responses.append({"nCodLanc": 9000000222, "cCodIntLanc": "TEST-LANC-001", "departamentos": [expected]})
+    _, request = mock_remote(monkeypatch, responses)
 
     OmieFinanceFacade(Configuration(tmp_path)).call(
         operation, {"confirmar": True, "dados": {**data, "departamentos": [row]}}, "empresa",
     )
 
-    request.assert_called_once()
-    departments = request.call_args.args[4]["departamentos"]
+    assert request.call_count == (2 if operation == TRANSACTION_UPDATE else 1)
+    departments = request.call_args_list[0].args[4]["departamentos"]
     assert departments == [expected]
     assert all(("nPerDep" in item) != ("nValDep" in item) for item in departments)
 
@@ -1118,3 +1281,187 @@ def test_financial_write_uncertainty_preserves_safe_cause_without_retry(tmp_path
     for key, value in details.items():
         assert error.value.details[key] == value
     assert request.call_count == 1
+
+
+@pytest.mark.parametrize("resource,endpoint,method,get_method", [
+    ("contas_pagar", "payables", "AlterarContaPagar", "ConsultarContaPagar"),
+    ("contas_receber", "receivables", "AlterarContaReceber", "ConsultarContaReceber"),
+])
+def test_title_department_update_sends_only_distribution_and_confirms_persistence(tmp_path, monkeypatch, resource, endpoint, method, get_method):
+    """O título recebe distribuicao, mesmo que o chamador não reenvie valor ou dados de baixa."""
+    ack = {"codigo_status": "0", "descricao_status": "Alterado com sucesso"}
+    record = {"codigo_lancamento_omie": 12, "status_titulo": "PAGO", "origem": "BARP",
+              "distribuicao": [{"cCodDep": "000123", "nPerDep": 100, "nValDep": 220, "cDesDep": "Departamento"}]}
+    _, request = mock_remote(monkeypatch, [ack, record])
+    facade = OmieFinanceFacade(Configuration(tmp_path))
+    name = f"omie.financeiro.{resource}.alterar"
+    arguments = {"confirmar": True, "dados": {"id": 12, "departamentos": [{"codigo": "000123", "percentual": 100}]}}
+    schema = next(tool["input_schema"] for tool in facade.definitions([{"name": "empresa"}]) if tool["name"] == name)
+    Draft202012Validator(schema).validate(arguments)
+
+    result = facade.call(name, arguments, "empresa")
+
+    assert result["dados"] == [ack]
+    assert result["verificacao"] == {"rateio_confirmado": True}
+    assert request.call_count == 2
+    assert request.call_args_list[0].args == ({}, {}, endpoint, method, {
+        "codigo_lancamento_omie": 12, "distribuicao": [{"cCodDep": "000123", "nPerDep": 100}],
+    })
+    assert request.call_args_list[0].kwargs == {"retries": 0}
+    assert request.call_args_list[1].args == ({}, {}, endpoint, get_method, {"codigo_lancamento_omie": 12})
+    assert request.call_args_list[1].kwargs == {"retries": None}
+
+
+def test_account_department_update_accepts_only_identifier_and_departments(tmp_path, monkeypatch):
+    ack = {"cCodStatus": "0", "nCodLanc": 9000000222}
+    record = {"nCodLanc": 9000000222, "departamentos": [{"cCodDep": "000123", "nPerDep": 100, "nValDep": 1000}],
+              "diversos": {"cOrigem": "BAXP", "nCodLancCP": 12}}
+    _, request = mock_remote(monkeypatch, [ack, record])
+
+    result = OmieFinanceFacade(Configuration(tmp_path)).call(TRANSACTION_UPDATE, {
+        "confirmar": True, "dados": {"id": 9000000222, "departamentos": [{"codigo": "000123", "percentual": 100}]},
+    }, "empresa")
+
+    assert result["verificacao"] == {"rateio_confirmado": True}
+    assert [call.args[4] for call in request.call_args_list] == [
+        {"nCodLanc": 9000000222, "departamentos": [{"cCodDep": "000123", "nPerDep": 100}]},
+        {"nCodLanc": 9000000222},
+    ]
+    assert [call.args[3] for call in request.call_args_list] == ["AlterarLancCC", "ConsultaLancCC"]
+
+
+@pytest.mark.parametrize("readback,code", [
+    ({"nCodLanc": 12, "departamentos": [], "diversos": {"cOrigem": "BAXP", "nCodLancCP": 34}}, "allocation_not_persisted"),
+    (OmieError("network_error", "Consulta indisponível."), "write_verification_failed"),
+    ({"nCodLanc": 12}, "write_verification_failed"),
+])
+def test_rateio_processing_ack_never_hides_missing_or_unknown_persistence(tmp_path, monkeypatch, readback, code):
+    _, request = mock_remote(monkeypatch, [{"cCodStatus": "0", "nCodLanc": 12}, readback])
+
+    with pytest.raises(OmieError) as error:
+        OmieFinanceFacade(Configuration(tmp_path)).call(TRANSACTION_UPDATE, {
+            "confirmar": True, "dados": {"id": 12, "departamentos": [{"codigo": "000123", "percentual": 100}]},
+        }, "empresa")
+
+    assert error.value.code == code
+    assert error.value.details["retryable"] is False
+    assert error.value.details["escrita_processada"] is True
+    assert [call.args[3] for call in request.call_args_list] == ["AlterarLancCC", "ConsultaLancCC"]
+
+
+def test_partial_account_update_omits_other_fields_and_does_not_read_unrequested_allocation(tmp_path, monkeypatch):
+    _, request = mock_remote(monkeypatch, [{"cCodStatus": "0"}])
+
+    result = OmieFinanceFacade(Configuration(tmp_path)).call(TRANSACTION_UPDATE, {
+        "confirmar": True, "dados": {"id": 12, "projeto_id": 34},
+    }, "empresa")
+
+    request.assert_called_once_with({}, {}, "account_transactions", "AlterarLancCC", {
+        "nCodLanc": 12, "detalhes": {"nCodProjeto": 34},
+    }, retries=0)
+    assert "verificacao" not in result
+
+
+@pytest.mark.parametrize("operation,fields", [
+    ("contas_pagar.alterar", {"id", "codigo_integracao", "cliente_fornecedor_id", "cliente_fornecedor_codigo_integracao", "data_vencimento", "valor", "categoria_codigo", "projeto_id", "observacao", "tipo_documento", "numero_documento", "departamentos"}),
+    ("contas_pagar.registrar_pagamento", {"id", "codigo_integracao", "conta_corrente_id", "valor", "data", "observacao"}),
+    ("contas_pagar.cancelar_pagamento", {"id_baixa"}),
+    ("transferencias.criar", {"codigo_integracao", "conta_origem_id", "conta_destino_id", "data", "valor", "categoria_codigo", "numero_documento", "observacao", "projeto_id", "departamentos"}),
+    ("contas_pagar.criar_lote", {"lote", "titulos"}),
+])
+def test_financial_write_schemas_publish_only_the_fields_their_adapters_translate(tmp_path, operation, fields):
+    tools = OmieFinanceFacade(Configuration(tmp_path)).definitions([{"name": "empresa"}])
+    schema = next(tool["input_schema"] for tool in tools if tool["name"] == "omie.financeiro." + operation)
+
+    assert set(schema["properties"]["dados"]["properties"]) == fields
+    Draft202012Validator.check_schema(schema)
+    if operation.endswith("criar_lote"):
+        item = schema["properties"]["dados"]["properties"]["titulos"]["items"]
+        assert "departamentos" in item["properties"]
+        assert "id_baixa" not in item["properties"]
+        assert item["additionalProperties"] is False
+
+
+@pytest.mark.parametrize("resource", ["contas_pagar", "contas_receber"])
+@pytest.mark.parametrize("action,item", [
+    ("criar_lote", {"id": 12}), ("criar_lote", {}),
+    ("incluir_ou_alterar_lote", {}), ("incluir_ou_alterar_lote", {"id": 12}),
+    ("incluir_ou_alterar_lote", {"id": 12, "departamentos": None}),
+])
+def test_batch_title_validation_rejects_incomplete_items_before_access(tmp_path, monkeypatch, resource, action, item):
+    arguments = {"confirmar": True, "dados": {"lote": 1, "titulos": [item]}}
+    facade = OmieFinanceFacade(Configuration(tmp_path))
+    name = f"omie.financeiro.{resource}.{action}"
+    schema = next(tool["input_schema"] for tool in facade.definitions([{"name": "empresa"}]) if tool["name"] == name)
+    assert not Draft202012Validator(schema).is_valid(arguments)
+    profile, request = mock_remote(monkeypatch, [])
+
+    with pytest.raises(OmieError) as error:
+        facade.call(name, arguments, "empresa")
+
+    assert error.value.code == "invalid_parameter"
+    profile.assert_not_called()
+    request.assert_not_called()
+
+
+@pytest.mark.parametrize("changes", [{"data_vencimento": "1/1/2026"}, {"numero_documento": "X" * 21}])
+def test_title_schema_limits_are_enforced_before_access(tmp_path, monkeypatch, changes):
+    arguments = {"confirmar": True, "dados": {"id": 12, **changes}}
+    facade = OmieFinanceFacade(Configuration(tmp_path))
+    name = "omie.financeiro.contas_pagar.alterar"
+    schema = next(tool["input_schema"] for tool in facade.definitions([{"name": "empresa"}]) if tool["name"] == name)
+    assert not Draft202012Validator(schema).is_valid(arguments)
+    profile, request = mock_remote(monkeypatch, [])
+
+    with pytest.raises(OmieError) as error:
+        facade.call(name, arguments, "empresa")
+
+    assert error.value.code == "invalid_parameter"
+    profile.assert_not_called()
+    request.assert_not_called()
+
+
+@pytest.mark.parametrize("resource", ["contas_pagar", "contas_receber"])
+def test_title_business_rejection_stops_before_allocation_verification(tmp_path, monkeypatch, resource):
+    """codigo_status não zero impede confirmação, mesmo que o rateio anterior já coincidisse."""
+    profile = {"credential_profile": "vault", "credential_entry_path": "APIs/Omie/synthetic",
+               "app_key_field": "username", "app_secret_field": "password"}
+    monkeypatch.setattr(OmieService, "_profile", Mock(return_value=(profile, {"min_request_interval_seconds": 0})))
+    monkeypatch.setattr("onmyoji_daemon.mcp.omie.service.KeePassCredentialResolver.resolve", lambda *_args: "synthetic-only")
+    calls = []
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return False
+        def read(self): return b'{"codigo_status":"10","descricao_status":"Titulo bloqueado"}'
+
+    def request(value, **_kwargs):
+        calls.append(json.loads(value.data)["call"])
+        return Response()
+
+    monkeypatch.setattr("onmyoji_daemon.mcp.omie.service.urlopen", request)
+
+    with pytest.raises(OmieError) as error:
+        OmieFinanceFacade(Configuration(tmp_path)).call(f"omie.financeiro.{resource}.alterar", {
+            "confirmar": True, "dados": {"id": 12, "departamentos": [{"codigo": "000123", "percentual": 100}]},
+        }, "empresa")
+
+    assert error.value.code == "omie_api_error"
+    assert error.value.details == {"retryable": False, "remote_code": "10", "remote_description": "Titulo bloqueado"}
+    assert calls == ["AlterarContaPagar" if resource == "contas_pagar" else "AlterarContaReceber"]
+
+
+@pytest.mark.parametrize("with_amount", [False, True])
+def test_duplicate_departments_are_rejected_before_any_write(tmp_path, monkeypatch, with_amount):
+    profile, request = mock_remote(monkeypatch, [])
+    data = {"id": 12, "departamentos": [{"codigo": "000123", "percentual": 50}, {"codigo": "000123", "percentual": 50}]}
+    if with_amount:
+        data["valor"] = 100
+
+    with pytest.raises(OmieError) as error:
+        OmieFinanceFacade(Configuration(tmp_path)).call(TRANSACTION_UPDATE, {"confirmar": True, "dados": data}, "empresa")
+
+    assert error.value.code == "invalid_parameter"
+    assert "repetido" in str(error.value)
+    profile.assert_not_called()
+    request.assert_not_called()

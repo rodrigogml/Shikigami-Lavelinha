@@ -174,20 +174,26 @@ Telegram. `DM` significa conversa privada com o bot.
 | `/config` | DM: abrir preferências; grupos: ajustar a janela de contexto com argumentos numéricos. | Não permitido. |
 | `/channel` | DM e grupos: cadastrar, identificar e gerenciar canais. | Não permitido, inclusive para solicitar cadastro. |
 | `/usage` | Somente DM (inclusive tópicos privados): consultar os limites e o consumo da conta Codex. | Não permitido; nenhuma informação da franquia é consultada ou enviada. |
+| `/resetusage` | Somente DM (inclusive tópicos privados): resgatar uma renovação extra mediante confirmação com código temporário. | Não permitido; não consulta nem consome créditos. |
 | `/login` | Somente DM (inclusive tópicos privados): menu de autenticação, status, informações da conta e logoff. | Não permitido. |
 | `/fila <texto>` | Somente DM: enfileirar uma entrada para o agente. | Não permitido. |
 | `/direcionar <texto>` | Somente DM: solicitar direcionamento, se o runtime permitir. | Não permitido. |
 | `/cancel` | Somente DM: cancelar o turno atual, preservando a fila. | Não permitido. |
 | `/resolver` | DM e grupos: reconciliar ou descartar operações incertas da conversa correspondente. | Somente DM: reconciliar ou descartar operações incertas da própria conversa. |
 | `/totp` | Somente DM, quando TOTP estiver habilitado. | Não permitido. |
+| `/register` | Somente DM própria: informa que já é Owner. | Somente DM própria: solicita cadastro pendente, sem obter permissões nem iniciar Codex. |
+| `/status` | Somente DM própria: identifica a conta como Owner. | Somente DM própria: consulta apenas o próprio status e roles. |
+| `/unregister` | Somente DM própria: não altera o Owner. | Somente DM própria: confirma em menu efêmero a retirada do cadastro e revogação dos roles. |
+| `/users` | Somente DM própria: menu com filtros, busca, paginação, aprovação de roles, suspensão, rejeição e reativação, com confirmações. | Não permitido. |
 | `/pair <PIN>` | Somente DM, com PIN temporário válido. | Somente DM, com PIN temporário válido: realiza o pareamento e concede o papel de owner. |
 
 A relação acima inclui `/pair`, embora ele não seja divulgado no menu permanente.
 O PIN é gerado pelo setup, expira e só pode ser consumido uma vez; a sua
 validação e consumo são atômicos para impedir pareamentos simultâneos com o
-mesmo código. Outros usuários recebem apenas `/new` e `/resolver` no menu
-privado; o menu do owner prevalece para usuários pareados. A exibição no
-Telegram não substitui a autorização no servidor.
+mesmo código. Outros usuários recebem `/new`, `/resolver`, `/register`,
+`/status` e `/unregister` no menu privado; o menu do Owner prevalece.
+Os três controles de cadastro são processados diretamente pelo Gateway, sem
+invocar o Codex. A exibição no Telegram não substitui a autorização no servidor.
 
 O Gateway restringe `/new` e `/resolver` de outros usuários à própria DM,
 sem permitir alterar o estado do owner ou de terceiros. O argumento
@@ -198,11 +204,50 @@ compor o contexto não confiável, mas não autorizam comandos de controle.
 O Gateway rejeita `/usage` fora da DM do owner antes de consultar
 `account/rateLimits/read`.
 
-A futura operação de consumo de renovação, `/resetusage`, deve seguir a mesma
-permissão de `/usage` e exigir confirmação explícita; ela ainda não é um
-comando implementado nem faz parte do catálogo atual. A orientação para
-`/resetusage` só deve aparecer na resposta de `/usage` depois que o comando
-estiver disponível.
+`/resetusage` fica restrito à DM do owner, inclusive tópicos privados, e inicia
+uma consulta de disponibilidade sem consumir créditos. Para usar uma renovação
+extra disponível, o owner precisa digitar `/resetusage confirmar <código>` com
+o código gerado pelo bot dentro de 2 minutos. `/resetusage cancelar` descarta
+a confirmação pendente. O Gateway consome exatamente um crédito pelo RPC
+`account/rateLimitResetCredit/consume` com chave de idempotência única e não
+repete a operação automaticamente após um resultado incerto. Rejeições de
+conta sem créditos e de janela sem elegibilidade não são tratadas como sucesso.
+Após consumo confirmado, o Gateway relê os limites; `/usage` continua sendo
+somente consulta, e o menu dos demais usuários continua sem `/resetusage`.
+
+### Autocadastro de terceiros — Fase 2
+
+`/register` cria ou renova um pedido `PENDING` no SQLite, somente em DM
+própria, e avisa os Owners uma vez por nova solicitação (inclusive após
+`WITHDRAWN`). O estado não autoriza conversa, MCP ou destino de saída; uma
+repetição não envia novos alertas. Rejeitados e suspensos não se reabrem sem
+intervenção do Owner. `/status` consulta exclusivamente o cadastro do próprio
+remetente. `/unregister` requer confirmação efêmera de uso único vinculada
+ao ID de usuário, conversa, mensagem, revisão e prazo; a retirada limpa roles
+e pode ser sucedida por novo `/register`. Falhas de aviso ao Owner não anulam
+o registro. Os comandos são ignorados em grupos, DMs de terceiros, mensagens
+editadas e mensagens dirigidas a outro bot.
+
+### Administração de usuários — Fase 3
+
+O Owner pode abrir `/users` na própria DM para visualizar pendentes, ativos,
+suspensos, rejeitados ou todos; cada categoria mostra registros paginados
+(8 por página). O comando `/users texto` procura pelo nome, @username ou ID.
+Na ficha, os roles `CHAT_USER` e `NOTIFY_TARGET` podem ser marcados de forma
+independente. **Salvar roles e ativar/reativar** exige ao menos um role; para
+remover todos, o Owner deve confirmar **Suspender**. **Rejeitar** também exige
+confirmação explícita. O menu não gerencia Owners pareados.
+
+Os botões contêm tokens temporários de uso único, associados ao Owner, à DM,
+à mensagem e à geração da conversa. A cada decisão, o Gateway confere a
+revisão SQLite vista pelo menu, evitando que dois Owners sobrescrevam a
+decisão um do outro. O menu expira após quinze minutos e é invalidado em
+reinícios. Uma notificação ao usuário é tentada após a transação, sem reverter
+o cadastro em caso de falha de transporte.
+
+Mensagens comuns de terceiros continuam sem acionar o agente, mesmo que
+o cadastro esteja ativo; a conversação somente será habilitada na Fase 4.
+A origem `NOTIFY_TARGET` não gera destinos de saída até a Fase 5.
 
 ## Menu de comandos do bot
 
@@ -215,11 +260,16 @@ comandos no chat privado de cada owner:
 | `/config` | Configurar a conversa atual. |
 | `/channel` | Gerenciar canal de envio. |
 | `/usage` | Consultar consumo e franquia do Codex. |
+| `/resetusage` | Resgatar uma renovação extra da franquia do Codex com confirmação. |
 | `/login` | Gerenciar login e conta Codex. |
 | `/fila <texto>` | Enfileirar uma mensagem. |
 | `/direcionar <texto>` | Orientar o turno em andamento. |
 | `/cancel` | Interromper o turno atual, preservando a fila. |
 | `/resolver` | Consultar e reconciliar solicitações sem confirmação. |
+| `/users` | Administrar solicitações, roles e suspensões, somente na DM do Owner. |
+| `/register` | Solicitar cadastro pendente. |
+| `/status` | Consultar o próprio cadastro. |
+| `/unregister` | Retirar cadastro após confirmação. |
 | `/totp` | Obter código de autenticação, quando TOTP estiver habilitado. |
 
 `/pair <PIN>` pertence ao pareamento temporário e não entra no menu permanente.
@@ -227,7 +277,8 @@ Variações como `/resolver descartar` são argumentos do comando correspondente
 O teste do catálogo compara os handlers com essa relação para detectar novos
 comandos permanentes que ainda não tenham sido incluídos no menu.
 
-Para **outros usuários**, o menu na DM contém somente `/new` e `/resolver`.
+Para **outros usuários**, o menu na DM contém `/new`, `/resolver`,
+`/register`, `/status` e `/unregister`.
 O Gateway publica esse catálogo pelo escopo `all_private_chats`, sem divulgar
 comandos administrativos no escopo global do Telegram. O catálogo individual
 do owner tem prioridade sobre o escopo geral de DMs.
@@ -286,6 +337,8 @@ O Gateway recebe e registra mensagens mesmo enquanto há um turno em execução.
 Downloads e preparação de voz/anexos usam capacidade limitada, preservando a
 ordem por conversa; callbacks e controles têm caminho próprio. A fila durável
 é deduplicada pela origem do update antes de avançar o checkpoint do polling.
+Novas entradas durante um turno são persistidas e roteadas sem notificação
+automática de recebimento ou enfileiramento.
 
 Em `configs/daemon/services/telegram/config.toml`:
 
@@ -347,6 +400,16 @@ execução são objetos distintos. Se o processo estiver vivo e o turno anterior
 tiver terminado, a próxima entrada inicia outro turno na mesma thread. Se o
 processo tiver parado, o Gateway inicializa a conexão, retoma a thread e só
 então inicia o turno. Retomar histórico sozinho não gera resposta.
+
+O transporte admite na fila somente as notificações que o Gateway consome:
+início e término de turno, itens concluídos e conclusão do login. Deltas de
+texto, saídas parciais de ferramentas e notificações legadas não utilizadas são
+descartados antes do enfileiramento e não consultam o banco. Respostas RPC,
+requisições de ferramentas e eventos locais de recuperação permanecem fora desse
+filtro. Isso evita que uma rajada de progresso interrompa o atendimento por
+saturação. Os eventos admitidos preservam ordem por thread e os limites de
+segurança do transporte. Veja a [validação de pressão de
+notificações](validation/telegram-notification-pressure.md).
 
 O checkpoint privado também registra PID, criação nativa, executável e epoch
 do App Server antes de iniciar geração. Após crash do Gateway, uma nova abertura

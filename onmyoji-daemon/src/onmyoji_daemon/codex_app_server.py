@@ -16,7 +16,7 @@ import secrets
 import subprocess
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 from .codex_execution import CodexExecutionError, CodexLaunch
 
@@ -107,16 +107,24 @@ class CodexAppServer:
     permanecem disponíveis. Notificações da mesma thread preservam ordem.
     Overflow ou perda do transporte produz ``transport/lost`` e interrompe
     admissão daquele epoch; nenhuma falha de ACK causa retry automático.
+    ``notification_methods`` limita notificações remotas antes das filas; ``None``
+    mantém todas. Respostas, requisições e eventos locais de recuperação não
+    passam por esse filtro.
     """
 
     def __init__(self, settings: Any, *, event_limit: int = 1024, request_limit: int = 64,
                  event_workers: int = 4, request_workers: int | None = None,
-                 max_frame_bytes: int = 4 * 1024 * 1024, event_drain_timeout: float = 1):
+                 max_frame_bytes: int = 4 * 1024 * 1024, event_drain_timeout: float = 1,
+                 notification_methods: frozenset[str] | None = None):
         limits = (event_limit, request_limit, event_workers, max_frame_bytes) + (() if request_workers is None else (request_workers,))
         if any(isinstance(value, bool) or not isinstance(value, int) or value < 1 for value in limits):
             raise ValueError("App Server transport limits must be positive")
         if isinstance(event_drain_timeout, bool) or not isinstance(event_drain_timeout, (int, float)) or not math.isfinite(event_drain_timeout) or event_drain_timeout < 0:
             raise ValueError("App Server transport drain timeout must be finite and nonnegative")
+        if notification_methods is not None and (not isinstance(notification_methods, frozenset)
+                or any(not isinstance(method, str) or not method for method in notification_methods)):
+            raise ValueError("App Server notification methods must be a frozenset of nonempty strings or None")
+        self.notification_methods = notification_methods
         self.settings = settings
         self.process = self.reader = self.stderr_reader = None
         self.write_lock, self.pending_lock = threading.Lock(), threading.Lock()
@@ -295,7 +303,22 @@ class CodexAppServer:
         assert self._runtime
         return self._request_runtime(self._runtime, method, params or {}, timeout)
 
-    def _request_runtime(self, runtime: _Runtime, method: str, params: dict[str, Any], timeout: float) -> dict[str, Any]:
+    def request_tracked(self, method: str, params: dict[str, Any] | None = None, *,
+                        observer: Callable[[dict[str, Any]], None], timeout: float = 45) -> dict[str, Any]:
+        """Persiste a correlação do chamador antes de permitir a escrita da RPC.
+
+        O observer síncrono recebe somente epoch, ID e método, sem conteúdo da
+        solicitação. Sua falha impede o envio. Respostas tardias conservam o
+        epoch/ID para reconciliação local, sem repetir a operação.
+        """
+        if not callable(observer):
+            raise ValueError("Tracked requests require a callable observer")
+        self.start()
+        assert self._runtime
+        return self._request_runtime(self._runtime, method, params or {}, timeout, observer=observer)
+
+    def _request_runtime(self, runtime: _Runtime, method: str, params: dict[str, Any], timeout: float,
+                         observer: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
         with self.pending_lock:
             if len(self.pending) >= self.request_limit:
                 raise CodexProtocolError("Limite de RPCs pendentes do App Server atingido", kind="not_sent", method=method, process_epoch=runtime.epoch)
@@ -308,14 +331,33 @@ class CodexAppServer:
             pending.outbound = _Outbound(payload, method)
             self.pending[request_id] = pending
         try:
+            if observer is not None:
+                try:
+                    observer({"process_epoch": runtime.epoch, "rpc_id": request_id, "method": method})
+                except Exception as error:
+                    raise CodexProtocolError("Não foi possível persistir a correlação da chamada ao Codex.",
+                                             kind="not_sent", method=method, request_id=request_id,
+                                             process_epoch=runtime.epoch, written=False) from error
             self._enqueue(runtime, pending.outbound)
             try:
                 message = pending.response.get(timeout=timeout)
             except queue.Empty as error:
-                with pending.outbound.lock:
-                    pending.outbound.cancelled = not pending.outbound.started
-                    written = pending.outbound.started
-                raise CodexProtocolError(f"Codex App Server excedeu o tempo de espera em {method}", kind="uncertain" if written else "not_sent", method=method, request_id=request_id, process_epoch=runtime.epoch, written=written) from error
+                # A resposta pode chegar entre o prazo da fila e este lock.
+                # Retirar a RPC e admitir respostas usam o mesmo mutex: ou
+                # consumimos a confirmação já recebida, ou ela vira evento
+                # tardio. Nenhuma confirmação fica em uma fila abandonada.
+                expired = False
+                with self.pending_lock:
+                    try:
+                        message = pending.response.get_nowait()
+                    except queue.Empty:
+                        self.pending.pop(request_id, None)
+                        expired = True
+                if expired:
+                    with pending.outbound.lock:
+                        pending.outbound.cancelled = not pending.outbound.started
+                        written = pending.outbound.started
+                    raise CodexProtocolError(f"Codex App Server excedeu o tempo de espera em {method}", kind="uncertain" if written else "not_sent", method=method, request_id=request_id, process_epoch=runtime.epoch, written=written) from error
             if isinstance(message, CodexProtocolError):
                 raise message
             if message.get("error"):
@@ -417,10 +459,12 @@ class CodexAppServer:
                 return False
             with self.pending_lock:
                 target = self.pending.get(request_id)
-            if target and target.epoch == runtime.epoch:
-                self._complete_pending(target, message)
-            else:
-                self._dispatch_event(runtime, "transport/late_response", message, context)
+                matched = target is not None and target.epoch == runtime.epoch
+                if matched:
+                    self._complete_pending(target, message)
+            if not matched:
+                self._dispatch_event(runtime, "transport/late_response", message,
+                                     {**context, "rpc_id": request_id, "transport_generated": True})
         elif isinstance(message.get("method"), str):
             params = message.get("params") if isinstance(message.get("params"), dict) else {}
             if "id" in message and not _rpc_id(request_id):
@@ -428,7 +472,7 @@ class CodexAppServer:
                 return False
             if _rpc_id(request_id):
                 self._dispatch_request(runtime, request_id, message["method"], params, context)
-            else:
+            elif self.notification_methods is None or message["method"] in self.notification_methods:
                 self._dispatch_event(runtime, message["method"], params, context)
         else:
             self._lose(runtime, "invalid_envelope")
@@ -601,3 +645,4 @@ class CodexAppServer:
                     self.last_error = "Codex App Server emitiu diagnóstico em stderr"
         except (OSError, ValueError):
             pass
+

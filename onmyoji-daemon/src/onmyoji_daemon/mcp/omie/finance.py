@@ -1,8 +1,8 @@
 """Fachada financeira semântica da Omie.
 
 Os nomes e os filtros publicados aqui pertencem ao MCP.  Os identificadores da
-Omie ficam confinados neste adaptador para que uma mudança ou inconsistência da
-API não se torne uma instrução ambígua para o agente.
+Omie são traduzidos nas entradas; os registros retornados preservam os campos
+nativos, cujo uso é explicado nos contratos publicados.
 """
 from __future__ import annotations
 
@@ -15,7 +15,8 @@ from datetime import datetime
 from math import isfinite
 from typing import Any, Mapping
 
-from .contracts import DIRECT_DOCUMENT_TYPES, normalize_account_departments
+from .allocation import verify_department_allocation
+from .contracts import DIRECT_DOCUMENT_TYPES, build_params, normalize_account_departments, normalize_percentage_departments
 from .exception import OmieError
 from .service import OmieService
 
@@ -67,8 +68,8 @@ SPECS: list[FinanceSpec] = [
     FinanceSpec("omie.financeiro.categorias.consultar", "categories_get", "Consulta uma categoria pelo código.", kind="get"),
     FinanceSpec("omie.financeiro.departamentos.listar", "departments_list", "Lista departamentos para rateio."),
     FinanceSpec("omie.financeiro.departamentos.consultar", "departments_get", "Consulta um departamento pelo código.", kind="get"),
-    FinanceSpec("omie.financeiro.projetos.listar", "projects_list", "Lista projetos para classificação financeira."),
-    FinanceSpec("omie.financeiro.projetos.consultar", "projects_get", "Consulta um projeto pelo identificador.", kind="get"),
+    FinanceSpec("omie.financeiro.projetos.listar", "projects_list", "Lista projetos para classificação financeira, com filtro opcional em filtros.nome. Percorra paginacao.proxima_pagina e confirme o projeto pelo nome e demais dados; nomes semelhantes não identificam um projeto com segurança."),
+    FinanceSpec("omie.financeiro.projetos.consultar", "projects_get", "Consulta um projeto pelo ID Omie ou por um código de integração confirmado. Para descobrir o ID por nome, use omie.financeiro.projetos.listar com filtros.nome.", kind="get"),
     FinanceSpec("omie.financeiro.tipos_documento.listar", "document_types_list", "Retorna o catálogo completo de tipos de documento em uma única chamada, sem paginação e sem filtros. Chame com {} quando houver um único perfil; não envie pagina nem tamanho_pagina.", kind="catalog"),
 ]
 SPECS += _list_specs("movimentos", "financial_movements_list", "movimentos financeiros")
@@ -128,6 +129,17 @@ TRANSACTION_NAMES = {
     "departamentos": "departments",
 }
 TRANSACTION_REQUIRED = ("conta_corrente_id", "data", "valor", "categoria_codigo", "tipo_documento")
+TITLE_NAMES = {
+    "codigo_integracao": "codigo_lancamento_integracao", "id": "codigo_lancamento_omie",
+    "cliente_fornecedor_id": "codigo_cliente_fornecedor", "cliente_fornecedor_codigo_integracao": "codigo_cliente_fornecedor_integracao",
+    "data_vencimento": "data_vencimento", "valor": "valor_documento", "categoria_codigo": "codigo_categoria",
+    "projeto_id": "codigo_projeto", "observacao": "observacao", "tipo_documento": "codigo_tipo_documento",
+    "numero_documento": "numero_documento", "departamentos": "distribuicao",
+}
+TITLE_REQUIRED = ("codigo_integracao", "cliente_fornecedor_id", "data_vencimento", "valor", "categoria_codigo")
+PAYMENT_NAMES = {"id": "codigo_lancamento", "codigo_integracao": "codigo_lancamento_integracao", "conta_corrente_id": "codigo_conta_corrente", "valor": "valor", "data": "data", "observacao": "observacao"}
+TRANSFER_NAMES = {"codigo_integracao": "integration_id", "conta_origem_id": "source_account_id", "conta_destino_id": "destination_account_id", "data": "date", "valor": "amount", "categoria_codigo": "category_code", "numero_documento": "document_number", "observacao": "note", "projeto_id": "project_id", "departamentos": "departments"}
+ALLOCATION_NAMES = {"id": "codigo_lancamento_omie", "chave": "chave_lancamento", "distribuicao": "distribuicao"}
 
 
 def _invalid(field: str, message: str, *, use_instead: list[str] | None = None) -> None:
@@ -138,7 +150,7 @@ def _invalid(field: str, message: str, *, use_instead: list[str] | None = None) 
 
 
 def _date(value: Any, field: str) -> str:
-    if not isinstance(value, str): _invalid(field, "deve ser uma data no formato dd/mm/aaaa.")
+    if not isinstance(value, str) or len(value) != 10: _invalid(field, "deve ser uma data no formato dd/mm/aaaa.")
     try: datetime.strptime(value, "%d/%m/%Y")
     except ValueError: _invalid(field, "deve ser uma data válida no formato dd/mm/aaaa.")
     return value
@@ -173,6 +185,9 @@ def _identifier_schema(spec: FinanceSpec) -> dict[str, Any]:
             if resource in IDENTIFIER_LENGTHS:
                 properties[field]["maxLength"] = IDENTIFIER_LENGTHS[resource]
             properties[field]["description"] = "Código definido pela integração na inclusão." if field == "codigo_integracao" else "Código do cadastro retornado pela Omie."
+    if resource == "projects":
+        properties["id"]["description"] = "ID numérico Omie retornado em dados[].codigo por projetos.listar ou consultar. Informe como inteiro, sem aspas."
+        properties["codigo_integracao"]["description"] = "Valor confirmado no campo codInt do projeto. codInt pode estar vazio; o nome, mesmo quando parece um código como STRB15, não é código de integração. Para descobrir por nome, use projetos.listar com filtros.nome."
     return {"type": "object", "properties": properties, "oneOf": [{"required": [field]} for field in properties], "additionalProperties": False}
 
 
@@ -198,7 +213,7 @@ def _transaction_names(spec: FinanceSpec) -> dict[str, str]:
 
 
 def _transaction_required(spec: FinanceSpec) -> tuple[str, ...]:
-    return ("codigo_integracao", *TRANSACTION_REQUIRED) if spec.legacy.endswith("_create") else TRANSACTION_REQUIRED
+    return ("codigo_integracao", *TRANSACTION_REQUIRED) if spec.legacy.endswith("_create") else ()
 
 
 def _transaction_body(spec: FinanceSpec, data: Mapping[str, Any]) -> dict[str, Any]:
@@ -211,27 +226,33 @@ def _transaction_body(spec: FinanceSpec, data: Mapping[str, Any]) -> dict[str, A
             _invalid(f"dados.{field}", "é obrigatório nesta operação.")
     if spec.legacy.endswith("_update") and not {"id", "codigo_integracao"} & set(data):
         _invalid("dados", "informe id ou codigo_integracao para identificar o lançamento existente.", use_instead=["dados.id", "dados.codigo_integracao"])
+    if spec.legacy.endswith("_update") and not set(data) - {"id", "codigo_integracao"}:
+        _invalid("dados", "informe ao menos um campo a alterar além do identificador.")
     for field in ("id", "conta_corrente_id", "cliente_id", "projeto_id"):
         if field in data:
             _positive_id(data[field], f"dados.{field}")
     for field in ("codigo_integracao", "categoria_codigo", "numero_documento"):
         if field in data:
             _text(data[field], f"dados.{field}", max_length=20)
-    if not isinstance(data["data"], str) or len(data["data"]) != 10:
-        _invalid("dados.data", "deve ser uma data no formato dd/mm/aaaa.")
-    _date(data["data"], "dados.data")
-    amount = data["valor"]
-    if type(amount) not in (int, float) or amount <= 0 or (isinstance(amount, float) and not isfinite(amount)):
+    if "data" in data:
+        if not isinstance(data["data"], str) or len(data["data"]) != 10:
+            _invalid("dados.data", "deve ser uma data no formato dd/mm/aaaa.")
+        _date(data["data"], "dados.data")
+    amount = data.get("valor")
+    if "valor" in data and (type(amount) not in (int, float) or amount <= 0 or (isinstance(amount, float) and not isfinite(amount))):
         _invalid("dados.valor", "deve ser um número finito maior que zero.")
-    if not isinstance(data["tipo_documento"], str) or data["tipo_documento"] not in DIRECT_DOCUMENT_TYPES:
+    if "tipo_documento" in data and (not isinstance(data["tipo_documento"], str) or data["tipo_documento"] not in DIRECT_DOCUMENT_TYPES):
         _invalid("dados.tipo_documento", "deve ser um dos tipos de documento publicados no contrato.")
     if "observacao" in data and not isinstance(data["observacao"], str):
         _invalid("dados.observacao", "deve ser um texto.")
     translated = {names[key]: value for key, value in data.items()}
     if "departamentos" in data:
-        translated["departments"] = normalize_account_departments(
-            data["departamentos"], amount, field="dados.departamentos", error_code="invalid_parameter",
-        )
+        if "valor" in data:
+            translated["departments"] = normalize_account_departments(
+                data["departamentos"], amount, field="dados.departamentos", error_code="invalid_parameter",
+            )
+        else:
+            translated["departments"] = normalize_percentage_departments(data["departamentos"])
     return translated
 
 
@@ -252,8 +273,9 @@ def _department_schema() -> dict[str, Any]:
             "Rateio por departamentos. Envie apenas objetos com codigo (texto) e "
             "percentual (número), por exemplo [{\"codigo\":\"8532594895\",\"percentual\":100}]. "
             "Mesmo se conter apenas dígitos, codigo precisa estar entre aspas. "
-            "Um departamento recebe percentual 100; com vários, a soma deve ser 100. "
-            "Não use cCodDep/nPerDep/nValDep nem valor nos itens; o MCP calcula os valores."
+            "Um departamento recebe percentual 100; com vários, a soma deve ser 100 e cada código aparece uma única vez. "
+            "Não use cCodDep/nPerDep/nValDep nem valor nos itens; envie somente o percentual. "
+            "Uma lista vazia solicita remover o rateio."
         ),
         "examples": [[example]],
         "items": {
@@ -301,14 +323,31 @@ def _schema(spec: FinanceSpec, profiles: list[dict[str, str]]) -> dict[str, Any]
             "conta_origem_id": {"type": "integer", "minimum": 1}, "conta_destino_id": {"type": "integer", "minimum": 1},
         }
         data_schema: dict[str, Any] = {"type": "object", "properties": data_properties, "description": "Dados semânticos da operação; campos fora do contrato são recusados.", "additionalProperties": False}
+        fields = {
+            "title": TITLE_NAMES, "payment": PAYMENT_NAMES, "receipt": {"id_baixa": "codigo_baixa"},
+            "transfer": TRANSFER_NAMES, "batch": {"lote": "lote", "titulos": "titles"}, "allocation": ALLOCATION_NAMES,
+        }.get(spec.kind)
+        if fields is not None:
+            data_schema["properties"] = {field: data_properties[field] for field in fields}
         if spec.kind == "title" and spec.legacy.endswith("_create"):
-            data_schema["required"] = ["codigo_integracao", "cliente_fornecedor_id", "data_vencimento", "valor", "categoria_codigo"]
+            data_schema["required"] = list(TITLE_REQUIRED)
+        elif spec.kind == "title":
+            data_schema["anyOf"] = [{"required": ["id"]}, {"required": ["codigo_integracao"]}]
+            data_schema["allOf"] = [{"anyOf": [{"required": [field]} for field in TITLE_NAMES if field not in {"id", "codigo_integracao"}]}]
         elif spec.kind == "payment":
             data_schema["required"] = ["conta_corrente_id", "valor", "data"]
             data_schema["anyOf"] = [{"required": ["id"]}, {"required": ["codigo_integracao"]}]
         elif spec.kind == "receipt": data_schema["required"] = ["id_baixa"]
         elif spec.kind == "transfer": data_schema["required"] = ["codigo_integracao", "conta_origem_id", "conta_destino_id", "data", "valor", "categoria_codigo"]
-        elif spec.kind == "batch": data_schema["required"] = ["lote", "titulos"]
+        elif spec.kind == "batch":
+            data_schema["required"] = ["lote", "titulos"]
+            item = {"type": "object", "properties": {field: data_properties[field] for field in TITLE_NAMES}, "additionalProperties": False}
+            if spec.legacy.endswith("_create_batch"):
+                item["required"] = list(TITLE_REQUIRED)
+            else:
+                item["anyOf"] = [{"required": ["id"]}, {"required": ["codigo_integracao"]}]
+                item["allOf"] = [{"anyOf": [{"required": [field]} for field in TITLE_NAMES if field not in {"id", "codigo_integracao"}]}]
+            data_schema["properties"]["titulos"] = {"type": "array", "minItems": 1, "items": item}
         elif spec.kind == "get":
             data_schema = _identifier_schema(spec)
         elif spec.kind == "transaction":
@@ -321,6 +360,7 @@ def _schema(spec: FinanceSpec, profiles: list[dict[str, str]]) -> dict[str, Any]
             if spec.legacy.endswith("_update"):
                 data_schema["properties"]["id"] = {"type": "integer", "minimum": 1, "description": "ID do lançamento existente, gerado pela Omie."}
                 data_schema["anyOf"] = [{"required": ["id"]}, {"required": ["codigo_integracao"]}]
+                data_schema["allOf"] = [{"anyOf": [{"required": [field]} for field in _transaction_names(spec) if field not in {"id", "codigo_integracao"}]}]
         properties["dados"] = data_schema
         properties["confirmar"] = {"type": "boolean", "const": True, "description": "Deve ser true para confirmar a escrita."}
         required = ["dados", "confirmar"]
@@ -338,6 +378,12 @@ def _schema(spec: FinanceSpec, profiles: list[dict[str, str]]) -> dict[str, Any]
             required = ["filtros"]
         elif spec.kind == "get":
             required = ["filtros"]
+        elif spec.legacy == "projects_list":
+            filters["nome"] = {
+                "type": "string", "minLength": 1, "maxLength": 100, "pattern": r"\S",
+                "description": "Nome enviado ao filtro de projetos da Omie. Confira os nomes e demais dados retornados; não presuma busca parcial, nome único nem correspondência com codInt.",
+                "examples": ["STRB15"],
+            }
         properties["filtros"] = _identifier_schema(spec) if spec.kind == "get" else {"type": "object", "properties": filters, "required": ["data_inicial", "data_final"] if spec.period else [], "additionalProperties": False}
         if spec.account_required:
             properties["filtros"]["required"].append("conta_corrente_id")
@@ -348,11 +394,36 @@ def _schema(spec: FinanceSpec, profiles: list[dict[str, str]]) -> dict[str, Any]
     return {"type": "object", "properties": properties, "required": required, "additionalProperties": False}
 
 
-def _translate_title(data: Mapping[str, Any]) -> dict[str, Any]:
-    names = {"codigo_integracao": "codigo_lancamento_integracao", "id": "codigo_lancamento_omie", "cliente_fornecedor_id": "codigo_cliente_fornecedor", "cliente_fornecedor_codigo_integracao": "codigo_cliente_fornecedor_integracao", "data_vencimento": "data_vencimento", "valor": "valor_documento", "categoria_codigo": "codigo_categoria", "projeto_id": "codigo_projeto", "observacao": "observacao", "tipo_documento": "codigo_tipo_documento", "numero_documento": "numero_documento"}
-    unknown = set(data) - set(names)
-    if unknown: _invalid(next(iter(unknown)), "não pertence ao contrato desta operação.")
-    return {names[key]: value for key, value in data.items()}
+def _translate_title(data: Mapping[str, Any], *, create: bool) -> dict[str, Any]:
+    """Traduz apenas os campos solicitados do título, inclusive rateio percentual."""
+    unknown = set(data) - set(TITLE_NAMES)
+    if unknown: _invalid(f"dados.{sorted(unknown)[0]}", "não pertence ao contrato desta operação.")
+    if create:
+        for field in TITLE_REQUIRED:
+            if field not in data:
+                _invalid(f"dados.{field}", "é obrigatório na criação do título.")
+    else:
+        if not {"id", "codigo_integracao"} & set(data):
+            _invalid("dados", "informe id ou codigo_integracao para identificar o título.")
+        if not set(data) - {"id", "codigo_integracao"}:
+            _invalid("dados", "informe ao menos um campo a alterar além do identificador.")
+    for field in ("id", "cliente_fornecedor_id", "projeto_id"):
+        if field in data:
+            _positive_id(data[field], f"dados.{field}")
+    for field in ("codigo_integracao", "cliente_fornecedor_codigo_integracao", "categoria_codigo", "tipo_documento", "numero_documento"):
+        if field in data:
+            limit = 60 if field == "codigo_integracao" else 20 if field == "numero_documento" else None
+            _text(data[field], f"dados.{field}", max_length=limit)
+    if "data_vencimento" in data:
+        _date(data["data_vencimento"], "dados.data_vencimento")
+    if "valor" in data and (type(data["valor"]) not in (int, float) or data["valor"] <= 0 or (isinstance(data["valor"], float) and not isfinite(data["valor"]))):
+        _invalid("dados.valor", "deve ser um número finito maior que zero.")
+    if "observacao" in data and not isinstance(data["observacao"], str):
+        _invalid("dados.observacao", "deve ser um texto.")
+    translated = {TITLE_NAMES[key]: value for key, value in data.items()}
+    if "departamentos" in data:
+        translated["distribuicao"] = normalize_percentage_departments(data["departamentos"])
+    return translated
 
 
 # O cache guarda páginas nativas completas, nunca credenciais, somente em memória.
@@ -415,15 +486,21 @@ class OmieFinanceFacade:
             if spec.kind == "get":
                 fields = list(IDENTIFIER_NAMES[spec.legacy.rsplit("_", 1)[0]])
                 description += " Informe exatamente um identificador em " + ("dados" if spec.writes else "filtros") + ": " + " ou ".join(fields) + "."
+            if spec.legacy in {"projects_list", "projects_get"}:
+                description += " Em dados, codigo é o ID numérico (use filtros.id), codInt é o código de integração e nome é o nome do projeto. Textos como STRB15 podem estar somente em nome; use filtros.codigo_integracao apenas quando o valor estiver confirmado em codInt."
             if spec.legacy == "account_transactions_create":
                 description += " Exige codigo_integracao (texto de até 20 caracteres), conta_corrente_id, data, valor, categoria_codigo e tipo_documento em dados. O id é gerado pela Omie."
-            if spec.kind in {"transaction", "transfer"}:
+            if spec.legacy == "account_transactions_update":
+                description += " Aceita alteração parcial: informe id ou codigo_integracao e somente os campos a alterar. Para rateio, bastam identificador e departamentos; não reenvie conta, data, valor ou tipo_documento que não pretende alterar."
+            if spec.legacy in {"account_transactions_update", "payables_update", "receivables_update"}:
+                description += " Quando departamentos é enviado, o MCP consulta o cadastro após a escrita e só confirma persistência em verificacao.rateio_confirmado. Se o rateio divergir ou a consulta falhar, retorna erro sem repetir a escrita; não cancele nem repita uma baixa para alterar classificação."
+            if spec.kind in {"transaction", "transfer", "title"}:
                 description += (
                     ' Para dados.departamentos use somente [{"codigo":"8532594895","percentual":100}]. '
                     'codigo é TEXTO mesmo quando contém apenas dígitos (sempre entre aspas); '
                     'percentual é NÚMERO e deve totalizar 100. '
                     'Não use chaves técnicas cCodDep/nPerDep/nValDep ou valor no rateio; '
-                    'o MCP calcula o valor de cada departamento.'
+                    'a Omie calcula os valores a partir dos percentuais. Uma lista vazia solicita remover o rateio.'
                 )
             tools.append({"name": spec.name, "description": description + " Não use parâmetros técnicos da Omie.", "input_schema": _schema(spec, profiles)})
         return tools
@@ -438,6 +515,7 @@ class OmieFinanceFacade:
             legacy = {"params": {**legacy["params"], "nPagina": 1, "nRegPorPagina": 50}}
         service = OmieService(self.configuration.root)
         root = str(self.configuration.root.resolve())
+        verification = None
         if account is not None:
             # A mesma consulta nativa é usada por todas as páginas/contas públicas.
             cache_key = (root, profile, json.dumps(legacy["params"], sort_keys=True))
@@ -453,14 +531,21 @@ class OmieFinanceFacade:
             with _profile_cache_lock(root, profile):
                 _cache_invalidate(root, profile)
                 try:
+                    verify_allocation = spec.legacy in {"account_transactions_update", "payables_update", "receivables_update"} and "departamentos" in _object(arguments, "dados")
+                    parameters = build_params(spec.legacy, legacy) if verify_allocation else None
                     response = service.invoke_financial(profile, spec.legacy, legacy, writes=True)
+                    if parameters is not None:
+                        verification = verify_department_allocation(service, profile, spec.legacy, parameters)
                 finally:
                     _cache_invalidate(root, profile)
         else:
             response = service.invoke_financial(profile, spec.legacy, legacy, writes=False)
             if spec.collect_pages:
                 response = self._collect_pages(service, profile, spec, legacy, response)
-        return self._normalize(spec, response, arguments.get("incluir_dados_omie") is True)
+        result = self._normalize(spec, response, arguments.get("incluir_dados_omie") is True)
+        if verification is not None:
+            result["verificacao"] = verification
+        return result
 
     def _legacy_arguments(self, spec: FinanceSpec, arguments: Mapping[str, Any]) -> dict[str, Any]:
         if spec.writes:
@@ -468,22 +553,22 @@ class OmieFinanceFacade:
             data = _object(arguments, "dados")
             if spec.kind == "get":
                 return {"params": _identifier_params(spec, data, "dados")}
-            if spec.kind == "title": return {"body": _translate_title(data)}
+            if spec.kind == "title":
+                return {"body": _translate_title(data, create=spec.legacy.endswith("_create"))}
             if spec.kind == "batch":
+                self._map(data, {"lote": "lote", "titulos": "titles"})
                 titles = data.get("titulos")
                 if type(data.get("lote")) is not int or not isinstance(titles, list) or not titles: _invalid("dados", "exige lote e titulos não vazios.")
                 if not all(isinstance(item, Mapping) for item in titles): _invalid("dados.titulos", "deve conter apenas objetos JSON.")
-                return {"body": {"lote": data["lote"], "titles": [_translate_title(item) for item in titles]}}
+                return {"body": {"lote": data["lote"], "titles": [_translate_title(item, create=spec.legacy.endswith("_create_batch")) for item in titles]}}
             if spec.kind == "payment":
-                names = {"id": "codigo_lancamento", "codigo_integracao": "codigo_lancamento_integracao", "conta_corrente_id": "codigo_conta_corrente", "valor": "valor", "data": "data", "observacao": "observacao"}
-                return {"body": self._map(data, names)}
+                return {"body": self._map(data, PAYMENT_NAMES)}
             if spec.kind == "receipt": return {"body": self._map(data, {"id_baixa": "codigo_baixa"})}
-            if spec.kind == "allocation": return {"body": self._map(data, {"id": "codigo_lancamento_omie", "chave": "chave_lancamento", "distribuicao": "distribuicao"})}
+            if spec.kind == "allocation": return {"body": self._map(data, ALLOCATION_NAMES)}
             if spec.kind == "transaction":
                 return {"body": _transaction_body(spec, data)}
             if spec.kind == "transfer":
-                names = {"codigo_integracao": "integration_id", "conta_origem_id": "source_account_id", "conta_destino_id": "destination_account_id", "data": "date", "valor": "amount", "categoria_codigo": "category_code", "numero_documento": "document_number", "observacao": "note", "projeto_id": "project_id", "departamentos": "departments"}
-                body = self._map(data, names)
+                body = self._map(data, TRANSFER_NAMES)
                 if "departamentos" in data:
                     body["departments"] = normalize_account_departments(
                         data["departamentos"], data.get("valor"), field="dados.departamentos", error_code="invalid_parameter",
@@ -498,6 +583,12 @@ class OmieFinanceFacade:
             if unknown:
                 _invalid(sorted(unknown)[0], "este catálogo não aceita filtros; chame com {} ou somente os controles publicados de perfil e auditoria.")
             return {"params": {}}
+        allowed = {"profile", "incluir_dados_omie", "filtros"}
+        if spec.paginated:
+            allowed.update({"pagina", "tamanho_pagina"})
+        unknown = set(arguments) - allowed
+        if unknown:
+            _invalid(sorted(unknown)[0], "não pertence ao contrato desta consulta; use somente os parâmetros publicados.")
         filters = _object(arguments, "filtros")
         native = spec.legacy in {"financial_movements_list", "account_transactions_list"}
         params = _page(arguments, native=native) if spec.paginated else {}
@@ -521,6 +612,15 @@ class OmieFinanceFacade:
                 params["nCodCC"] = filters["conta_corrente_id"]
         elif spec.kind == "get":
             params = _identifier_params(spec, filters, "filtros")
+        elif spec.kind == "list":
+            allowed_filters = {"nome"} if spec.legacy == "projects_list" else set()
+            unknown = set(filters) - allowed_filters
+            if unknown:
+                message = "esta listagem aceita somente filtros.nome." if allowed_filters else "esta listagem não aceita filtros; remova os campos de filtros."
+                _invalid(f"filtros.{sorted(unknown)[0]}", message, use_instead=["filtros.nome"] if allowed_filters else None)
+            if "nome" in filters:
+                _text(filters["nome"], "filtros.nome", max_length=100)
+                params["nome_projeto"] = filters["nome"]
         return {"params": params}
 
     @staticmethod

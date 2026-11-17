@@ -90,6 +90,52 @@ Exemplo de conferência de um lançamento existente, usando um ID fictício:
 {"tool":"omie.financeiro.lancamentos_conta.consultar","arguments":{"filtros":{"id":9000000001},"incluir_dados_omie":true}}
 ```
 
+### Projetos: nome, ID e integração
+
+`omie.financeiro.projetos.listar` aceita `filtros.nome`: texto não vazio de até
+100 caracteres, enviado como `nome_projeto` à Omie. Sem esse filtro, a operação
+lista os projetos do perfil. O MCP preserva em `dados` os campos do cadastro:
+
+| Campo retornado | Uso |
+| --- | --- |
+| `codigo` | ID numérico: informe em `filtros.id` de `projetos.consultar` ou em `projeto_id`/`project_id` nas operações financeiras e de NF-e. |
+| `codInt` | Código de integração: informe em `filtros.codigo_integracao` somente quando esse valor estiver preenchido e confirmado no cadastro. |
+| `nome` | Nome do projeto: pode conter códigos de negócio como `STRB15`, independentemente de `codInt`. |
+
+Para localizar um projeto conhecido pelo nome:
+
+1. Liste com `filtros.nome` e percorra `paginacao.proxima_pagina`, conferindo os
+   nomes retornados. O MCP não define correspondência parcial nem suporte a
+   curingas para o filtro da Omie. Para buscar por parte do nome sem depender
+   dessa semântica, percorra as páginas sem filtro e compare localmente.
+2. Confirme um único projeto e use seu `codigo` numérico. Em caso de
+   ambiguidade, confirme o cadastro correto antes de classificar uma operação.
+3. Se precisar do detalhe, consulte com `filtros.id`. Não deduza o código de
+   integração pelo formato do nome.
+
+Exemplo fictício com um único perfil, supondo que a listagem confirmou
+`{"codigo":789,"codInt":"","nome":"STRB15"}`:
+
+```json
+{"tool":"omie.financeiro.projetos.listar","arguments":{"filtros":{"nome":"STRB15"},"pagina":1,"tamanho_pagina":50}}
+{"tool":"omie.financeiro.projetos.consultar","arguments":{"filtros":{"id":789}}}
+```
+
+> [!IMPORTANT]
+> Uma falha "Projeto não cadastrado" na consulta significa que o projeto não
+> foi encontrado pelo identificador informado. Ela não comprova que o projeto
+> inexiste por nome nem que `codInt` está vazio; confirme esses dados na listagem.
+> O erro `project_not_found` orienta a descoberta por nome e preserva o
+> diagnóstico remoto, sem repetir automaticamente a consulta que recebeu essa
+> falha. Confira o campo indicado antes de mudar o identificador.
+
+Listagens financeiras recusam filtros não publicados com `invalid_parameter`
+antes de acessar credenciais ou HTTP. Use `filtros.nome` para projetos; a chave
+nativa `nome_projeto` não pertence ao contrato público. Contas correntes,
+categorias e departamentos aceitam apenas `filtros` vazio ou omitido.
+
+Referência: [contrato oficial de projetos](https://app.omie.com.br/api/v1/geral/projetos/).
+
 ### Criação e alteração de lançamentos
 
 `omie.financeiro.lancamentos_conta.criar` exige em `dados`: `codigo_integracao`,
@@ -98,15 +144,22 @@ A obrigatoriedade da integração é uma regra do MCP e aparece no schema da too
 O código deve ser um texto estável de até 20 caracteres; guarde-o para consultar
 o resultado da inclusão. O ID é gerado pela Omie e não é um campo de criação.
 
-A alteração exige os mesmos cinco campos financeiros e pelo menos um entre
-`id` e `codigo_integracao`; os dois identificadores podem ser enviados juntos.
-Criação e alteração publicam somente os campos que conseguem traduzir, com
-os tipos de documento aceitos pelo MCP e os limites específicos de cada campo.
-Ausência ou invalidade de campos obrigatórios gera erro com o nome público,
-por exemplo `dados.codigo_integracao`, antes de qualquer acesso externo.
+A alteração aceita uma atualização parcial: informe `id` ou
+`codigo_integracao` e pelo menos um campo editável. Os dois identificadores
+podem ser enviados juntos. O MCP envia apenas os campos solicitados; para
+alterar o rateio, não é necessário repetir conta, data, valor, categoria ou
+tipo de documento. Campos omitidos permanecem fora da requisição, preservando
+os dados que não fazem parte da correção.
 
-O schema público de `dados.departamentos` publica **um único formato**
-para criação/alteração de lançamentos e criação de transferências:
+Criação e alteração publicam somente os campos que conseguem traduzir, com os
+tipos de documento aceitos pelo MCP e os limites específicos de cada campo.
+Cada operação financeira de escrita tem seu próprio schema; um campo aceito
+em outra operação não passa a ser aceito automaticamente. Ausência ou
+invalidade de campos obrigatórios gera erro com o nome público, por exemplo
+`dados.codigo_integracao`, antes de qualquer acesso externo.
+
+O schema público de `dados.departamentos` publica **um único formato** para
+lançamentos, títulos a pagar/receber e transferências que aceitam rateio:
 
 ```json
 {"departamentos":[{"codigo":"8532594895","percentual":100}]}
@@ -114,16 +167,21 @@ para criação/alteração de lançamentos e criação de transferências:
 
 `codigo` é **sempre string**, mesmo quando contém apenas números; não envie
 `8532594895` sem aspas. `percentual` é numérico, positivo e até 100. Para
-um departamento, use `100`; para vários, a soma deve ser `100`. **Não**
+um departamento, use `100`; para vários, a soma deve ser `100`, sem repetir
+o código de um departamento. **Não**
 envie `valor`, `cCodDep`, `nPerDep` nem `nValDep` nos itens da tool
-pública. O MCP valida os percentuais e calcula os valores internamente para conferir
-o rateio, mas **envia à Omie somente `cCodDep` e `nPerDep`**. A API calcula
-o valor do departamento; enviar `nPerDep` junto com `nValDep` provoca
+pública. O MCP valida os percentuais e **envia à Omie somente `cCodDep` e
+`nPerDep`**. A API calcula o valor do departamento; enviar `nPerDep` junto com `nValDep` provoca
 `SOAP-ENV:Client-727` ("Preencha apenas a tag [nPerDep] ou [nValDep]!").
+
+Em `lancamentos_conta`, o envelope nativo é `departamentos`; em
+`contas_pagar` e `contas_receber`, é `distribuicao`. O agente usa sempre
+`dados.departamentos` nessas operações da fachada. As operações específicas
+de rateio de contas a receber mantêm seu contrato próprio publicado.
 
 Para compatibilidade com integrações antigas, o normalizador interno continua
 aceitando `codigo/valor` e `cCodDep/nPerDep/nValDep` quando chamado
-programaticamente. Quando o chamador informar apenas o valor, o conector
+programaticamente e houver os dados necessários à validação. Quando o chamador informar apenas o valor, o conector
 transmite `cCodDep` e `nValDep`; quando informar percentual (mesmo com
 valor consistente), transmite `cCodDep` e `nPerDep`. Nunca transmite ambas
 as tags no mesmo departamento. Esses formatos **não são apresentados no
@@ -133,6 +191,56 @@ Após uma inclusão confirmada, a conferência usa `.consultar` pelo ID retornad
 ou pelo código de integração original. Em resposta incerta, consulte antes de
 repetir a escrita. Referência dos campos nativos:
 [lançamentos de conta corrente da Omie](https://api.omie.com.br/docs/apis/financas/contacorrentelancamentos).
+
+### Rateio: alteração e confirmação de persistência
+
+Para corrigir somente departamentos, envie o identificador e o novo rateio,
+com `confirmar: true`. Exemplos fictícios, com um único perfil:
+
+```json
+{"tool":"omie.financeiro.lancamentos_conta.alterar","arguments":{"confirmar":true,"dados":{"id":9000000001,"departamentos":[{"codigo":"DEP-01","percentual":100}]}}}
+{"tool":"omie.financeiro.contas_pagar.alterar","arguments":{"confirmar":true,"dados":{"id":9000000002,"departamentos":[{"codigo":"DEP-01","percentual":100}]}}}
+```
+
+As alterações de lançamentos, contas a pagar e contas a receber que incluam
+`departamentos` consultam o mesmo objeto após a escrita. O retorno contém
+`verificacao.rateio_confirmado: true` somente quando o rateio lido confere
+com o solicitado. `departamentos: []` solicita a remoção do rateio e passa
+pela mesma conferência. O retorno `cCodStatus: "0"` da escrita, sozinho,
+não confirma a persistência da distribuição.
+Falhas de negócio são reconhecidas tanto em `cCodStatus`/`cDesStatus` dos
+lançamentos quanto em `codigo_status`/`descricao_status` dos títulos; uma
+rejeição não é tratada como processamento bem-sucedido.
+
+| Resultado da conferência | Comportamento |
+| --- | --- |
+| Rateio confirmado | A operação retorna o sucesso da escrita com `verificacao.rateio_confirmado: true`. |
+| Consulta concluída com rateio diferente | Retorna `allocation_not_persisted`, sem afirmar que o objetivo foi cumprido. |
+| Consulta não concluída ou resposta inconclusiva | Retorna `write_verification_failed`; o resultado do rateio exige nova consulta. |
+
+Os dois erros de conferência informam `escrita_processada: true` e
+`retryable: false`. A escrita não é repetida automaticamente. Consulte o
+cadastro antes de decidir a próxima ação; repetir um payload mais completo
+não é uma correção para uma distribuição que a Omie não manteve.
+
+Um lançamento de conta corrente pode apontar para o título de origem em
+`diversos.nCodLancCP` ou `diversos.nCodLancCR`. Se a conferência do movimento
+divergir, o diagnóstico orienta a consulta do título vinculado; o MCP não
+redireciona a escrita automaticamente para outro objeto. Ao corrigir o
+rateio de um título já pago ou recebido, confira também o movimento
+correspondente: a confirmação do título não garante propagação para uma
+baixa existente. Não cancele nem refaça pagamentos para corrigir rateio.
+
+> [!NOTE]
+> `BARP` identifica uma conta a pagar importada por código de barras;
+> `BAXP` identifica o pagamento de uma conta a pagar. Essas origens e o status
+> financeiro não demonstram, por si, que o rateio será aceito ou ignorado.
+> O contrato de `AlterarLancCC` admite departamentos; não há garantia pública
+> de propagação entre o título e sua baixa já existente.
+
+Referências: [campos do título a pagar](https://app.omie.com.br/api/v1/financas/contapagar/),
+[origens dos movimentos financeiros](https://app.omie.com.br/api/v1/financas/mf/)
+e [rateio de lançamentos na conciliação](https://ajuda.omie.com.br/pt-BR/articles/5222014-atualizacao-em-lote-de-lancamentos-na-conciliacao-de-contas-correntes).
 
 ### Conta corrente e período
 
@@ -229,7 +337,16 @@ corrige um campo rejeitado.
 O controle de tráfego do daemon serializa requisições da mesma App Key + método,
 inclusive entre processos que utilizam a **mesma raiz de instalação**,
 por meio de travas locais em `state/mcp/omie/method-locks/` com nomes hash
-sem credenciais ou dados financeiros. Também usa janela móvel para evitar rajadas e aplica por padrão intervalo mínimo de
+sem credenciais ou dados financeiros. No Windows, a espera pela trava não lê
+nem altera o byte protegido por outra chamada. A disputa entre processos
+aguarda até 60 segundos; ao esgotar esse prazo, retorna `omie_local_busy` com
+`retry_after_seconds: 3`. Falhas de preparação ou aquisição da trava retornam
+`omie_local_lock_error`; nenhuma dessas falhas realiza uma chamada à Omie.
+Se a liberação falhar após uma operação concluída, o erro inclui
+`phase: "release"`; nas escritas financeiras, retorna `outcome_unknown` para
+orientar a consulta do resultado antes de qualquer repetição. Se a operação
+já falhou, a falha de liberação preserva o diagnóstico original.
+Também usa janela móvel para evitar rajadas e aplica por padrão intervalo mínimo de
 0,35 segundo entre chamadas desse método, limite preventivo de 180 chamadas
 por minuto por método e 900 por minuto por processo. Há margem em relação aos
 limites padrão publicados pela Omie. Para contas Trial/FIT (60 chamadas/minuto),
@@ -275,9 +392,9 @@ ou os aliases `additional_info` e `department_allocations`. O rateio semântico
 usa `department_code`, `percentage` e `amount`; também são válidos os campos
 nativos na lista. Representações duplicadas de um mesmo campo são rejeitadas.
 
-`project_id`/`nIdProjeto` requer **ID numérico Omie**, não o código de integração
-como `STRA36`. Consulte `omie.financeiro.projetos.consultar` com `filtros.codigo_integracao` para obter
-esse ID. O departamento `Pisos` também exige seu código textual verdadeiro
+`project_id`/`nIdProjeto` recebe o **ID numérico Omie** de `dados[].codigo`.
+Para localizar um projeto pelo nome, siga o fluxo de [projetos](#projetos-nome-id-e-integração).
+O departamento `Pisos` também exige seu código textual verdadeiro
 (obtenha-o com `omie.financeiro.departamentos.listar`), não o nome.
 
 Exemplo fictício, a ser enviado **apenas após consultar a NF-e e validar** seus
