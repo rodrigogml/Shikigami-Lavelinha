@@ -67,3 +67,7 @@ Para realizar conciliação de contas finaceiras siga as instruções de `refere
 ## Entrada de Notas
 
 Para realizar entrade de notas siga as instruções de `references/entradaNotas.md`.
+
+### Notas do Mercado Livre
+
+Quando mencionado o tratamento de notas do mercado livre, leia `referentes/notasMercadoLivre.md`.
