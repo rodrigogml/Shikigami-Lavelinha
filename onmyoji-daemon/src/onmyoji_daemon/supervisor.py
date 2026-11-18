@@ -11,6 +11,7 @@ import os
 import re
 import threading
 import time
+import tomllib
 import uuid
 from typing import Any
 
@@ -18,7 +19,7 @@ from .registry import SERVICES, ServiceSpec
 from .rpc import RpcError, RpcServer, call, disconnected
 from .supervision.component.process_group import ServiceProcessGroup
 from .supervision.publication import PublicationCoordinator
-from .state_layout import daemon_runtime_path
+from .state_layout import SETUP_VERSION, daemon_runtime_path
 
 
 def free_port() -> int:
@@ -52,23 +53,63 @@ class Supervisor:
         self.endpoint_file = self.runtime / "endpoint.json"
         self.process_file = self.runtime / "process.json"
         self.lock_file = self.runtime / "supervisor.lock"
+        self.process_identity: dict[str, Any] = {}
         self.state_file = self.root / "services.json"
         self.log_root = self.runtime / "logs"; self.log_root.mkdir(parents=True, exist_ok=True)
         self.host, self.token, self.stop_event = "127.0.0.1", secrets.token_urlsafe(32), threading.Event()
         from .agent_notification.configuration import NotificationConfiguration
         limits = NotificationConfiguration(self.onmyoji_root).load()
-        self.rpc = RpcServer(self.host, free_port(), self.token, self.handle, long_methods=("notification.submit",), long_limit=limits["long_limit"], event_max_bytes=limits["max_request_bytes"], on_rejection=self._notification_transport_rejected)
+        reserved = self._http_ports(limits["port"])
+        for _attempt in range(64):
+            rpc = RpcServer(self.host, 0, self.token, self.handle, long_methods=("notification.submit",), long_limit=limits["long_limit"], event_max_bytes=limits["max_request_bytes"], on_rejection=self._notification_transport_rejected)
+            if rpc.port not in reserved:
+                self.rpc = rpc
+                break
+            rpc.close()
+        else:
+            raise OSError("Não foi possível reservar uma porta RPC fora das portas HTTP da instância.")
         self.services = {name: ManagedService(spec) for name, spec in SERVICES.items()}
         self.publications = PublicationCoordinator(self.onmyoji_root, self.services, self._call_service, {self.rpc.port})
         self.recovery_delay_seconds = 15.0
         self.next_recovery_at: dict[str, float] = {}
         self._load_state()
 
+    def _http_ports(self, notification_port: int | None = None) -> set[int]:
+        """Reserva listeners HTTP antes que seus processos estejam em execução."""
+        reserved = {39390, 39391, 39392}
+        reserved.update(spec.publication_port for spec in SERVICES.values() if spec.publication_port is not None)
+        if notification_port is None:
+            from .agent_notification.configuration import NotificationConfiguration
+            try:
+                notification_port = NotificationConfiguration(self.onmyoji_root).load()["port"]
+            except (OSError, ValueError, RpcError):
+                pass
+        if notification_port is not None:
+            reserved.add(notification_port)
+        try:
+            configuration = tomllib.loads((self.root / "services" / "gateway" / "config.toml").read_text(encoding="utf-8"))
+            gateway_port = configuration.get("http_port")
+            if type(gateway_port) is int and 1 <= gateway_port <= 65535:
+                reserved.add(gateway_port)
+        except (OSError, ValueError):
+            pass
+        return reserved
+
+    def _worker_rpc_port(self) -> int:
+        """Escolhe transporte privado sem ocupar listeners HTTP ou outros RPCs."""
+        reserved = self._http_ports() | {self.rpc.port}
+        reserved.update(service.port for service in self.services.values() if service.port)
+        for _attempt in range(64):
+            port = free_port()
+            if port not in reserved:
+                return port
+        raise OSError("Não foi possível selecionar uma porta RPC livre das reservas da instância.")
+
     def _acquire_lock(self) -> None:
         """Garante um único supervisor por CODEX_HOME, removendo somente lock órfão."""
         try: revision = hashlib.sha256((self.root / "daemon.toml").read_bytes()).hexdigest()
         except OSError: revision = ""
-        payload = {"pid": os.getpid(), "root": str(self.onmyoji_root), "instance": uuid.uuid4().hex, "started_at": time.time(), "configuration_revision": revision}
+        payload = {"pid": os.getpid(), "root": str(self.onmyoji_root), "instance": uuid.uuid4().hex, "started_at": time.time(), "configuration_revision": revision, "setup_version": SETUP_VERSION}
         try:
             descriptor = os.open(self.lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
@@ -81,12 +122,14 @@ class Supervisor:
                     alive = str(pid) in probe.stdout and "No tasks" not in probe.stdout
                 else:
                     try: os.kill(pid, 0); alive = True
+                    except PermissionError: alive = True
                     except OSError: pass
             if alive: raise RuntimeError("another daemon supervisor is already running for this instance")
             self.lock_file.unlink(missing_ok=True)
             descriptor = os.open(self.lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         with os.fdopen(descriptor, "w", encoding="utf-8") as output: json.dump(payload, output)
         self.process_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        self.process_identity = payload
 
     def _load_state(self) -> None:
         try: values = json.loads(self.state_file.read_text(encoding="utf-8"))
@@ -114,17 +157,20 @@ class Supervisor:
     def _safe_output(line: str) -> str:
         return re.sub(r"(?i)(token|password|secret)\s*[=:]\s*\S+", r"\1=[redacted]", line).strip()[-800:]
 
-    def _capture_output(self, service: ManagedService) -> None:
-        if not service.process or not service.process.stdout or not service.log_path: return
+    def _capture_output(self, service: ManagedService, process: subprocess.Popen[str], generation: str, log_path: Path) -> None:
+        """Preserva o log de cada processo sem reatribuir sua saída a outra geração."""
+        if not process.stdout: return
         try:
-            with service.log_path.open("a", encoding="utf-8") as output:
-                for raw in service.process.stdout:
+            with log_path.open("a", encoding="utf-8") as output:
+                for raw in process.stdout:
                     line = self._safe_output(raw)
                     if not line: continue
                     output.write(line + "\n"); output.flush()
-                    service.output_tail = line
-                    if service.process.poll() is not None and service.process.returncode:
-                        service.last_error = line
+                    with self.publications.lock:
+                        if service.process is process and service.generation == generation:
+                            service.output_tail = line
+                            if process.poll() is not None and process.returncode:
+                                service.last_error = line
         except OSError:
             pass
 
@@ -135,6 +181,9 @@ class Supervisor:
     def _start(self, name: str) -> dict[str, Any]:
         service = self.services[name]
         if service.process and service.process.poll() is None: return self.status(name)
+        if self.stop_event.is_set():
+            service.state = "stopped"
+            return self.status(name)
         service.intentional_stop = False
         if service.process_group:
             try:
@@ -146,10 +195,14 @@ class Supervisor:
         with self.publications.lock:
             self.publications.invalidate(name, service.generation)
             service.generation, service.state = uuid.uuid4().hex, "starting"
-        service.port, service.token = free_port(), secrets.token_urlsafe(32)
-        data_dir = self.root / "services" / name; data_dir.mkdir(parents=True, exist_ok=True)
-        command = service.spec.command(data_dir) + ["--host", self.host, "--port", str(service.port), "--token=" + service.token, "--onmyoji-root", str(self.onmyoji_root)]
+            service.output_tail, service.last_error = "", None
+            service.process = None
+            service.port = 0
         try:
+            with self.publications.lock:
+                service.port, service.token = self._worker_rpc_port(), secrets.token_urlsafe(32)
+            data_dir = self.root / "services" / name; data_dir.mkdir(parents=True, exist_ok=True)
+            command = service.spec.command(data_dir) + ["--host", self.host, "--port", str(service.port), "--token=" + service.token, "--onmyoji-root", str(self.onmyoji_root)]
             environment = dict(os.environ)
             source_root = str(Path(__file__).resolve().parents[1])
             environment["PYTHONPATH"] = source_root + (os.pathsep + environment["PYTHONPATH"] if environment.get("PYTHONPATH") else "")
@@ -165,7 +218,7 @@ class Supervisor:
                                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
             if service.spec.contain_process_tree:
                 service.process_group = ServiceProcessGroup(service.process)
-            threading.Thread(target=self._capture_output, args=(service,), daemon=True).start()
+            threading.Thread(target=self._capture_output, args=(service, service.process, service.generation, service.log_path), daemon=True).start()
             deadline = time.monotonic() + 12
             while time.monotonic() < deadline:
                 if service.process.poll() is not None:
@@ -199,6 +252,8 @@ class Supervisor:
         """Agenda nova inicialização após falha transitória de serviço habilitado."""
         now = time.monotonic()
         for name, service in self.services.items():
+            if self.stop_event.is_set():
+                return
             state = self.status(name)
             if not service.enabled or state["state"] != "failed" or now < self.next_recovery_at.get(name, 0):
                 continue
@@ -263,7 +318,7 @@ class Supervisor:
         service.state = "stopped"; return self.status(name)
 
     def handle(self, method: str, params: dict[str, Any]) -> Any:
-        if method == "ping": return {"service": "onmyoji-daemon", "state": "running"}
+        if method == "ping": return {"service": "onmyoji-daemon", "state": "running", **self.process_identity}
         if method == "list-services": return [self.status(name) for name in self.services]
         if method.startswith("gateway.publication.") or method in {"notification.transport-rejected", "task.activate", "cloudflare-tunnel.activate", "mini-apps.publication.update"}:
             raise RpcError("Operação interna reservada ao Supervisor.", "internal_operation")
@@ -306,18 +361,53 @@ class Supervisor:
                 pass
 
     def run_forever(self) -> None:
-        self._acquire_lock(); self._endpoint(); self._save_state()
-        for name, service in self.services.items():
-            if service.enabled: self.start(name)
-        threading.Thread(target=self._recover_enabled_services, daemon=True).start()
+        """Atende RPC enquanto os serviços habilitados ainda estão inicializando.
+
+        Serviços pendentes são publicados como ``starting``. Uma parada recebida
+        durante a inicialização impede a partida dos próximos serviços; a limpeza
+        aguarda o serviço em preparação antes de encerrar seus processos.
+        """
+        self._acquire_lock()
+        rpc_errors: list[Exception] = []
+
+        def serve_rpc() -> None:
+            try:
+                self.rpc.serve_forever(self.stop_event)
+            except Exception as error:
+                rpc_errors.append(error)
+            finally:
+                self.stop_event.set()
+
+        rpc_thread = threading.Thread(target=serve_rpc, name="onmyoji-rpc", daemon=True)
+        recovery_thread = threading.Thread(target=self._recover_enabled_services, name="onmyoji-recovery", daemon=True)
         publication_thread = threading.Thread(target=self._reconcile_publications, name="onmyoji-publications", daemon=True)
-        publication_thread.start()
-        try: self.rpc.serve_forever(self.stop_event)
+        started_threads: list[threading.Thread] = []
+        try:
+            for service in self.services.values():
+                if service.enabled:
+                    service.state = "starting"
+            self._endpoint(); self._save_state()
+            rpc_thread.start()
+            started_threads.append(rpc_thread)
+            for name, service in self.services.items():
+                if self.stop_event.is_set():
+                    break
+                if service.enabled:
+                    self.start(name)
+            if not self.stop_event.is_set():
+                for thread in (recovery_thread, publication_thread):
+                    thread.start()
+                    started_threads.append(thread)
+            self.stop_event.wait()
+            if rpc_errors:
+                raise rpc_errors[0]
         finally:
             self.stop_event.set()
-            publication_thread.join(timeout=5)
+            self.rpc.close()
+            for thread in started_threads:
+                thread.join(timeout=5)
             for name in self.services: self.stop(name)
-            self.endpoint_file.unlink(missing_ok=True); self.process_file.unlink(missing_ok=True); self.lock_file.unlink(missing_ok=True); self.rpc.close()
+            self.endpoint_file.unlink(missing_ok=True); self.process_file.unlink(missing_ok=True); self.lock_file.unlink(missing_ok=True)
 
 
 def endpoint(onmyoji_root: Path) -> tuple[str, int, str]:

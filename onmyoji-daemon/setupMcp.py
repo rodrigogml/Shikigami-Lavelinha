@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Configurador interativo dos perfis MCP locais."""
+"""Configurador interativo de cofres KeePass e integrações MCP locais."""
 from __future__ import annotations
 
+import argparse
 import copy
 import getpass
 import hashlib
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 import tomllib
+from uuid import uuid4
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -25,7 +29,7 @@ from setupOnmyoji import Ui, alert, flow_choice, flow_heading, install_linux_pac
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from onmyoji_daemon.mcp.configuration import McpConfiguration, McpConfigurationError
-from onmyoji_daemon.config_publication import apply_shared_file_mode
+from onmyoji_daemon.config_publication import apply_shared_file_mode, operational_file_mode
 from onmyoji_daemon.mcp.credentials import CredentialError, KeePassCredentialResolver
 from onmyoji_daemon.mcp.todoist import TodoistError, TodoistService
 from onmyoji_daemon.mcp.omie import OmieError, OmieService
@@ -38,7 +42,6 @@ from onmyoji_daemon.mcp.aws import AwsError, AwsService
 from onmyoji_daemon.mcp.mysql import MySQLError, MySQLService
 from onmyoji_daemon.mcp.ssh import SshError, SshService, fetch_host_key, save_host_key
 from onmyoji_daemon.mcp.bis2cmd import Bis2CmdError, Bis2CmdService
-from onmyoji_daemon.mcp.bis10cmd import Bis10CmdError, Bis10CmdService
 from onmyoji_daemon.mcp.google import GoogleError, GoogleService
 from onmyoji_daemon.mcp.google.oauth import authorize as authorize_google
 from onmyoji_daemon.mcp.spotify import SpotifyError, SpotifyService
@@ -263,54 +266,142 @@ def store_windows_password(target: str, password: str) -> None:
     if not ctypes.windll.advapi32.CredWriteW(ctypes.byref(credential), 0): raise OSError("Não foi possível salvar a credencial Windows.")
 
 
+def protected_password_auth(name: str, root: Path) -> dict[str, str]:
+    """Retorna o destino privado da senha mestra, estável por instância e perfil."""
+    filename = hashlib.sha256(f"{instance_identity(root)}\0{name}".encode("utf-8")).hexdigest() + ".secret"
+    return {"mode": "protected_file", "path": str(root.resolve() / "configs" / "mcp" / "secrets" / filename)}
+
+
 def profile_auth(name: str, root: Path = ROOT) -> dict:
+    """Seleciona um provedor compatível com a identidade operacional do cofre.
+
+    Novos perfis Linux usam arquivo protegido, independentemente da sessão
+    gráfica ou do D-Bus. Assim, o daemon pode obter a senha fora do terminal
+    de configuração. Perfis existentes mantêm o provedor já gravado.
+    """
     identity = instance_identity(root)
     target = f"{identity}/MCP/KeePass/{name}"
     linux_command = ["secret-tool", "lookup", "service", "shikigami-mcp", "shikigami", identity, "profile", name]
     if os.name == "nt":
         target = ask("Destino no Windows Credential Manager", target, True)
         return {"windows": {"mode": "windows_credential_manager", "target": target or ""}, "linux": {"mode": "command", "command": linux_command}}
-    if shutil.which("secret-tool") and os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
-        linux = {"mode": "command", "command": linux_command}
-    else:
-        filename = hashlib.sha256(f"{identity}\0{name}".encode("utf-8")).hexdigest() + ".secret"
-        linux = {"mode": "protected_file", "path": str(root.resolve() / "configs" / "mcp" / "secrets" / filename)}
-    return {"windows": {"mode": "windows_credential_manager", "target": target}, "linux": linux}
+    return {"windows": {"mode": "windows_credential_manager", "target": target}, "linux": protected_password_auth(name, root)}
 
 
-def store_protected_password(path: Path, password: str) -> None:
-    """Persiste o segredo para as duas contas autorizadas da instância."""
-    directory = path.parent
-    directory.mkdir(parents=True, exist_ok=True)
-    directory.chmod(0o2770)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    descriptor = os.open(path, flags, 0o660)
+def store_protected_password(path: Path, password: str, root: Path = ROOT) -> None:
+    """Publica a senha local sem alterar o segredo anterior em uma falha de gravação.
+
+    O destino precisa estar em ``configs/mcp/secrets`` da instância, sem links.
+    A política operacional define acesso exclusivo ou pelo grupo compartilhado;
+    arquivos temporários permanecem privados em ``tmp`` até a troca atômica.
+
+    Raises:
+        OSError: Se o destino for inseguro, as permissões não puderem ser aplicadas
+            ou a publicação falhar. O arquivo anterior permanece intacto.
+    """
+    root = root.resolve()
+    allowed = root / "configs" / "mcp" / "secrets"
+    expanded = path.expanduser()
+    destination = Path(os.path.abspath(expanded if expanded.is_absolute() else root / expanded))
     try:
-        os.fchmod(descriptor, 0o660)
-        os.write(descriptor, password.encode("utf-8"))
-    finally:
-        os.close(descriptor)
+        relative = destination.relative_to(allowed)
+    except ValueError as error:
+        raise OSError("O arquivo da senha precisa pertencer à pasta de segredos da instância.") from error
+    if not relative.parts:
+        raise OSError("Informe um arquivo dentro da pasta de segredos da instância.")
+    for directory in reversed(destination.parents):
+        if directory != root and directory.is_relative_to(root) and directory.is_symlink():
+            raise OSError("A pasta de segredos não pode conter links simbólicos.")
+
+    def validate_destination() -> None:
+        try:
+            current = destination.lstat()
+        except FileNotFoundError:
+            return
+        if not stat.S_ISREG(current.st_mode) or current.st_nlink != 1:
+            raise OSError("O arquivo da senha precisa ser regular e não pode possuir links.")
+
+    validate_destination()
+    shared = operational_file_mode(root) == 0o660
+    file_mode = 0o660 if shared else 0o600
+    directory_mode = 0o2770 if shared else 0o700
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    for directory in (allowed, *(allowed.joinpath(*relative.parts[:index]) for index in range(1, len(relative.parts)))):
+        if stat.S_IMODE(directory.stat().st_mode) != directory_mode:
+            directory.chmod(directory_mode)
+    parent_group = destination.parent.stat().st_gid
+    temporary_root = root / "tmp"
+    if temporary_root.is_symlink():
+        raise OSError("A pasta temporária da instância não pode ser um link simbólico.")
+    temporary_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="keepass-password-", dir=temporary_root) as temporary:
+        descriptor, temporary_name = tempfile.mkstemp(prefix="password-", dir=temporary)
+        staging = Path(temporary_name)
+        try:
+            if os.name == "posix":
+                if os.fstat(descriptor).st_gid != parent_group:
+                    os.fchown(descriptor, -1, parent_group)
+                os.fchmod(descriptor, file_mode)
+            with os.fdopen(descriptor, "wb") as output:
+                descriptor = None
+                output.write(password.encode("utf-8"))
+                output.flush()
+                os.fsync(output.fileno())
+            validate_destination()
+            os.replace(staging, destination)
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
 
 
 def save_password(name: str, auth: dict, root: Path = ROOT, password: str | None = None) -> bool:
-    """Grava a senha no cofre do sistema, solicitando-a somente se necessário."""
+    """Grava a senha e permite escolher um arquivo protegido se o Secret Service falhar.
+
+    A alternativa Linux reutiliza a senha já informada e só muda ``auth`` depois
+    de gravar com sucesso. Cancelamentos e erros preservam a autenticação atual.
+    Diagnósticos identificam provedor e categoria da falha, sem sua saída bruta.
+    """
     if password is None:
         password = getpass.getpass(Ui.text("› Senha mestra KeePass (não será exibida): ", Ui.violet, Ui.bold))
     if not password: return False
-    try:
-        if os.name == "nt": store_windows_password(auth["windows"]["target"], password)
-        elif auth["linux"].get("mode") == "protected_file":
-            store_protected_password(Path(auth["linux"]["path"]), password)
-        else:
-            identity = instance_identity(root)
-            subprocess.run(["secret-tool", "store", f"--label={identity} MCP KeePass {name}", "service", "shikigami-mcp", "shikigami", identity, "profile", name], input=password + "\n", text=True, check=True, timeout=20, capture_output=True)
-        result(True, "Senha mestra salva no provedor do sistema operacional.")
+    configured = copy.deepcopy(auth)
+    while True:
+        provider = "Windows Credential Manager" if os.name == "nt" else "arquivo protegido" if configured["linux"].get("mode") == "protected_file" else "Secret Service"
+        try:
+            if os.name == "nt":
+                store_windows_password(configured["windows"]["target"], password)
+            elif configured["linux"].get("mode") == "protected_file":
+                store_protected_password(Path(configured["linux"]["path"]), password, root=root)
+            else:
+                identity = instance_identity(root)
+                lookup = configured["linux"].get("command", [])
+                attributes = lookup[2:] if len(lookup) >= 2 and Path(lookup[0]).name == "secret-tool" and lookup[1] == "lookup" else ["service", "shikigami-mcp", "shikigami", identity, "profile", name]
+                subprocess.run(["secret-tool", "store", f"--label={identity} MCP KeePass {name}", *attributes], input=password + "\n", text=True, check=True, timeout=20, capture_output=True)
+        except (OSError, subprocess.SubprocessError) as error:
+            if isinstance(error, subprocess.TimeoutExpired):
+                detail = "tempo limite excedido"
+            elif isinstance(error, PermissionError):
+                detail = "permissão negada; confira a conta proprietária e as permissões da instância"
+            elif isinstance(error, FileNotFoundError):
+                detail = "ferramenta ou caminho indisponível"
+            elif isinstance(error, subprocess.CalledProcessError):
+                detail = f"o serviço não aceitou a gravação (código {error.returncode}); verifique se está disponível e desbloqueado nesta conta"
+            else:
+                detail = "falha de acesso ao provedor" + (f" (erro {error.errno})" if isinstance(error, OSError) and error.errno is not None else "")
+            result(False, f"Não foi possível salvar a senha mestra em {provider}: {detail}.")
+            if provider != "Secret Service":
+                return False
+            selected = flow_choice("Armazenamento da senha mestra", ["Tentar novamente no provedor do sistema", "Usar arquivo local protegido"], "Usar arquivo local protegido")
+            if selected == "Tentar novamente no provedor do sistema":
+                continue
+            if selected == "Usar arquivo local protegido":
+                configured["linux"] = protected_password_auth(name, root)
+                continue
+            return False
+        if os.name != "nt":
+            auth["linux"] = configured["linux"]
+        result(True, f"Senha mestra salva em {provider}.")
         return True
-    except (OSError, subprocess.SubprocessError):
-        result(False, "Não foi possível salvar a senha no provedor do sistema operacional.")
-        return False
 
 
 def keepassxc_command_available(command: list[str]) -> bool:
@@ -427,7 +518,7 @@ def ensure_linux_secret_tool() -> bool:
     if os.name == "nt" or shutil.which("secret-tool"):
         return True
     result(False, "secret-tool não está disponível; ele é necessário para salvar a senha mestra com segurança.")
-    selected = flow_choice("Provedor de segredos não encontrado", ["Instalar o provedor do sistema", "Cancelar"], "Instalar o provedor do sistema")
+    selected = flow_choice("Provedor de segredos não encontrado", ["Instalar o provedor do sistema"], "Instalar o provedor do sistema")
     if selected != "Instalar o provedor do sistema":
         return False
     installed = install_linux_packages("provedor seguro de senhas", {
@@ -438,6 +529,126 @@ def ensure_linux_secret_tool() -> bool:
     if installed and not ready:
         result(False, "A instalação terminou, mas secret-tool não ficou acessível nesta conta.")
     return ready
+
+
+def recreation_auth(name: str, root: Path, auth: dict) -> tuple[str, dict]:
+    """Separa a nova senha do provedor anterior durante a recriação do cofre."""
+    storage_name = f"{name}-recreated-{uuid4().hex}"
+    selected = copy.deepcopy(auth)
+    selected["windows"]["target"] = str(selected["windows"].get("target", name)) + "/" + storage_name
+    if selected["linux"].get("mode") == "protected_file":
+        selected["linux"] = protected_password_auth(storage_name, root)
+    else:
+        identity = instance_identity(root)
+        selected["linux"]["command"] = ["secret-tool", "lookup", "service", "shikigami-mcp", "shikigami", identity, "profile", storage_name]
+    return storage_name, selected
+
+
+def discard_recreated_password(auth: dict) -> None:
+    """Remove somente o destino exclusivo de uma recriação que não foi publicada."""
+    if os.name == "nt":
+        import ctypes
+        ctypes.windll.advapi32.CredDeleteW(auth["windows"]["target"], 1, 0)
+    elif auth["linux"].get("mode") == "protected_file":
+        Path(auth["linux"]["path"]).unlink(missing_ok=True)
+    else:
+        subprocess.run(["secret-tool", "clear", *auth["linux"]["command"][2:]], capture_output=True, timeout=20, check=False)
+
+
+def recreate_vault_profile(config: McpConfiguration, data: dict, name: str, password: str) -> bool:
+    """Prepara um novo cofre e senha antes de substituir o arquivo confirmado.
+
+    A criação e os backups ficam em ``tmp``. Uma falha de publicação restaura
+    o cofre e a configuração; a senha anterior nunca é substituída. Se uma
+    restauração falhar, seu backup é mantido e o caminho é informado ao operador.
+    """
+    platform = "windows" if os.name == "nt" else "linux"
+    database = Path(data["vaults"][name]["database"][platform])
+    temporary = None
+    replaced = False
+    storage_attempted = False
+    committed = False
+    configuration_attempted = False
+    keep_backup = False
+    backup = None
+    credentials_backup = None
+    credentials_existed = config.credentials_path.exists()
+    storage_name, auth = recreation_auth(name, config.root, data["profiles"][name]["auth"])
+    try:
+        original = database.stat()
+        original_identity = (original.st_dev, original.st_ino, original.st_size, original.st_mtime_ns)
+        temporary_root = config.root / "tmp"
+        if temporary_root.is_symlink():
+            raise OSError("A pasta temporária não pode ser um link simbólico.")
+        temporary_root.mkdir(parents=True, exist_ok=True)
+        temporary = Path(tempfile.mkdtemp(prefix="keepass-recreate-", dir=temporary_root))
+        candidate = temporary / "new.kdbx"
+        backup = temporary / "previous.kdbx"
+        if credentials_existed:
+            credentials_backup = temporary / "credentials.toml"
+            shutil.copy2(config.credentials_path, credentials_backup)
+            if os.name == "posix" and credentials_backup.stat().st_gid != config.credentials_path.stat().st_gid:
+                os.chown(credentials_backup, -1, config.credentials_path.stat().st_gid)
+        command = scope_flatpak_to_database(data["vaults"][name]["cli_command"], str(candidate))
+        made = subprocess.run([*command, "db-create", "--set-password", str(candidate)], input=password + "\n" + password + "\n", text=True, timeout=60, capture_output=True)
+        if made.returncode:
+            result(False, keepassxc_creation_error(made))
+            return False
+        if not candidate.is_file():
+            result(False, "KeePassXC informou sucesso, mas o novo cofre não foi criado.")
+            return False
+        candidate_vault = copy.deepcopy(data["vaults"][name])
+        candidate_vault["cli_command"] = command
+        candidate_vault["database"][platform] = str(candidate)
+        KeePassCredentialResolver.validate_vault_access(candidate_vault, data.get("defaults", {}), password)
+        with candidate.open("r+b") as prepared:
+            os.fsync(prepared.fileno())
+        if os.name == "posix":
+            if candidate.stat().st_gid != database.parent.stat().st_gid:
+                os.chown(candidate, -1, database.parent.stat().st_gid)
+            candidate.chmod(operational_file_mode(config.root) or 0o600)
+        storage_attempted = True
+        if not save_password(storage_name, auth, config.root, password):
+            return False
+        data["profiles"][name]["auth"] = auth
+        current = database.stat()
+        if database.is_symlink() or not database.is_file() or current.st_nlink != 1 or (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns) != original_identity:
+            raise OSError("O destino da recriação não é um arquivo regular exclusivo.")
+        shutil.copy2(database, backup)
+        if os.name == "posix" and backup.stat().st_gid != original.st_gid:
+            os.chown(backup, -1, original.st_gid)
+        os.replace(candidate, database)
+        replaced = True
+        configuration_attempted = True
+        config.save_credentials(data)
+        committed = True
+        result(True, "Cofre anterior excluído e novo cofre criado; perfil salvo.")
+        return True
+    except (OSError, subprocess.SubprocessError, CredentialError, McpConfigurationError):
+        try:
+            if replaced:
+                os.replace(backup, database)
+            if configuration_attempted and credentials_backup is not None and credentials_backup.is_file():
+                os.replace(credentials_backup, config.credentials_path)
+            elif configuration_attempted and not credentials_existed:
+                config.credentials_path.unlink(missing_ok=True)
+        except OSError:
+            keep_backup = True
+            result(False, f"A recriação falhou e a restauração precisa ser concluída a partir do backup em {temporary}.")
+        else:
+            result(False, "Não foi possível concluir a recriação; o cofre anterior foi preservado.")
+        return False
+    finally:
+        if storage_attempted and not committed and not keep_backup:
+            try:
+                discard_recreated_password(auth)
+            except (OSError, subprocess.SubprocessError, AttributeError):
+                alert("A senha da tentativa interrompida permanece no provedor; o perfil anterior continua vigente.")
+        if temporary is not None and not keep_backup:
+            try:
+                shutil.rmtree(temporary)
+            except OSError:
+                alert(f"Os arquivos temporários da tentativa permanecem em {temporary}; remova-os após conferir o resultado.")
 
 
 def create_vault_profile(config: McpConfiguration) -> None:
@@ -452,16 +663,45 @@ def create_vault_profile(config: McpConfiguration) -> None:
     platform = "windows" if os.name == "nt" else "linux"
     database = str(config.root / "configs" / "mcp" / "vaults" / f"{name}.kdbx") if origin.startswith("Criar") else ask(f"Arquivo KDBX no {platform}", required=True)
     if not database: return
+    creating = origin.startswith("Criar")
+    recreating = False
+    if creating and Path(database).exists():
+        note(f"Já existe um cofre em {database}; ele pode ser associado a este perfil sem ser sobrescrito.")
+        selected = flow_choice("Cofre local já existente", ["Associar o cofre existente", "Excluir e criar um novo cofre"], "Associar o cofre existente")
+        if selected == "Excluir e criar um novo cofre":
+            destination = Path(database)
+            allowed_directory = config.root.resolve() / "configs" / "mcp" / "vaults"
+            if destination.resolve().parent != allowed_directory or destination.is_symlink() or not destination.is_file() or destination.stat().st_nlink != 1:
+                result(False, "A recriação exige um arquivo KDBX regular, sem links.")
+                return
+            if any(Path(vault.get("database", {}).get(platform, "")).resolve() == destination.resolve() for vault in data["vaults"].values() if vault.get("database", {}).get(platform)):
+                result(False, "Esse cofre já está configurado na instância. Gerencie os perfis existentes antes de recriá-lo.")
+                return
+            note("Esta opção exclui definitivamente todas as entradas do cofre existente e cria um cofre vazio com uma nova senha.")
+            if prompt("Excluir o cofre existente e criar um novo? [s/N]: ").strip().casefold() not in {"s", "sim"}:
+                return
+            recreating = True
+        elif selected == "Associar o cofre existente":
+            creating = False
+        else:
+            return
     command = scope_flatpak_to_database(command, database)
     auth = profile_auth(name, config.root)
+    if os.name == "nt" and not auth.get("windows", {}).get("target"):
+        return
     if os.name != "nt" and auth.get("linux", {}).get("mode") == "command" and not ensure_linux_secret_tool(): return
     roots = ask("Raízes de entradas permitidas, separadas por ; (vazio = todas)", "")
+    if roots is None:
+        return
     data["vaults"][name] = {"cli_command": command, "database": {"windows": database if platform == "windows" else "", "linux": database if platform == "linux" else ""}}
     data["profiles"][name] = {"vault": name, "allowed_entry_roots": [item.strip() for item in (roots or "").split(";") if item.strip()], "auth": auth}
-    if origin.startswith("Criar"):
+    if creating:
         password = getpass.getpass(Ui.text("› Senha mestra do novo vault (não será exibida): ", Ui.violet, Ui.bold))
         confirm = getpass.getpass(Ui.text("› Repita a senha mestra: ", Ui.violet, Ui.bold))
         if not password or password != confirm: result(False, "Senhas não conferem; nada foi salvo."); return
+        if recreating:
+            recreate_vault_profile(config, data, name, password)
+            return
         try:
             if Path(database).exists():
                 result(False, f"Já existe um arquivo em {database}. Associe esse KDBX como cofre existente ou escolha outro nome de perfil.")
@@ -508,7 +748,7 @@ def manage_vault_profile(config: McpConfiguration, name: str) -> None:
                 profile["auth"]["linux"] = repaired
                 config.save_credentials(data)
         vault = data["vaults"][profile["vault"]]
-        profile_screen("MCP · Perfil de vault", name, {**profile, "vault_configurado": vault})
+        profile_screen("KeePass · Perfil de cofre", name, {**profile, "vault_configurado": vault})
         item("1.", "Alterar cofre associado")
         item("2.", "Alterar executável KeePassXC")
         item("3.", "Configurar autenticação")
@@ -525,7 +765,13 @@ def manage_vault_profile(config: McpConfiguration, name: str) -> None:
         elif action == "3": profile["auth"] = profile_auth(name, config.root)
         elif action == "4": profile["allowed_entry_roots"] = [item.strip() for item in (ask("Raízes separadas por ;", ";".join(profile["allowed_entry_roots"])) or "").split(";") if item.strip()]
         elif action == "5":
-            save_password(name, profile["auth"], config.root)
+            previous_auth = copy.deepcopy(profile["auth"])
+            if save_password(name, profile["auth"], config.root) and profile["auth"] != previous_auth:
+                try:
+                    config.save_credentials(data)
+                except McpConfigurationError as error:
+                    profile["auth"] = previous_auth
+                    result(False, str(error))
             continue
         elif action == "6":
             try: KeePassCredentialResolver(config.root).test_profile_access(name); result(True, "Acesso ao cofre confirmado.")
@@ -557,22 +803,23 @@ def manage_vault_profile(config: McpConfiguration, name: str) -> None:
 
 
 def vault_profiles_menu(config: McpConfiguration) -> None:
+    """Administra os cofres compartilhados pelas funcionalidades da instância."""
     while True:
         try:
             names = config.vault_profile_names()
         except McpConfigurationError as error:
             result(False, str(error))
             return
-        screen("MCP · Perfis de vault", "Cada perfil associa um único cofre KeePassXC")
+        screen("KeePass · Perfis de cofre", "Credenciais compartilhadas pelas funcionalidades do Onmyōji")
         item("1.", "Criar perfil")
         item("2.", "Gerenciar perfil", f"{len(names)} configurado(s)")
         item("X.", "Voltar")
         choice = prompt("Opção: ").strip().casefold()
-        if choice == "x": return
+        if choice in {"x", "\x1b"}: return
         if choice == "1":
             try: create_vault_profile(config)
             except McpConfigurationError as error: result(False, str(error))
-        elif choice == "2" and (name := select("MCP · Gerenciar perfil de vault", names)):
+        elif choice == "2" and (name := select("KeePass · Gerenciar perfil de cofre", names)):
             manage_vault_profile(config, name)
 
 
@@ -1694,6 +1941,8 @@ def bis10cmd_credentials(config: McpConfiguration, vault: str, entry: str, kind:
 
 
 def manage_bis10cmd_profile(config: McpConfiguration, name: str) -> None:
+    from onmyoji_daemon.mcp.bis10cmd import Bis10CmdError, Bis10CmdService
+
     while True:
         data = config.bis10cmd(); profile = data["profiles"].get(name)
         if not isinstance(profile, dict): return
@@ -2772,7 +3021,7 @@ def mercado_menu(config: McpConfiguration) -> None:
 
 
 def integrations_menu(config: McpConfiguration) -> None:
-    """Lista vault e integrações MCP em uma única tela de navegação."""
+    """Lista as integrações MCP em uma única tela de navegação."""
     while True:
         todoist_profiles = config.todoist()["profiles"]
         omie_profiles = config.omie()["profiles"]
@@ -2791,8 +3040,7 @@ def integrations_menu(config: McpConfiguration) -> None:
         memory_enabled = config.memory_tool_available()
         data_tables_enabled = config.data_tables_tool_available()
         mercado_profiles = config.mercado()["profiles"]
-        screen("MCP", "Perfis de vault e integrações MCP locais")
-        item("V.", "Perfis de vault", "KeePassXC e autenticação local")
+        screen("MCP", "Integrações MCP locais")
         print("\n  INTEGRAÇÕES DISPONÍVEIS")
         integration_item("1.", "Todoist", todoist_profiles)
         integration_item("2.", "Omie", omie_profiles)
@@ -2819,9 +3067,7 @@ def integrations_menu(config: McpConfiguration) -> None:
         choice = prompt("Opção: ").strip().casefold()
         if choice in {"x", "\x1b"}:
             return
-        if choice == "v":
-            vault_profiles_menu(config)
-        elif choice == "1":
+        if choice == "1":
             todoist_menu(config)
         elif choice == "2":
             omie_menu(config)
@@ -2875,4 +3121,25 @@ def menu(root: Path) -> int:
     return 0
 
 
-if __name__ == "__main__": raise SystemExit(menu(ROOT))
+def main(argv: list[str] | None = None) -> int:
+    """Abre cofres ou integrações sem instalar componentes ao navegar.
+
+    A ação ``vault`` usa somente as configurações e o CLI KeePassXC; abrir
+    ou criar um cofre não depende da instalação do SDK MCP.
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--onmyoji-root", type=Path, default=ROOT)
+    parser.add_argument("--action", choices=["menu", "vault"], default="menu")
+    args = parser.parse_args(argv)
+    root = args.onmyoji_root.resolve()
+    if args.action == "vault":
+        try:
+            vault_profiles_menu(McpConfiguration(root))
+        except McpConfigurationError as error:
+            result(False, str(error))
+            return 2
+        return 0
+    return menu(root)
+
+
+if __name__ == "__main__": raise SystemExit(main())

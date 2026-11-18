@@ -9,6 +9,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
+import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -782,6 +783,25 @@ class SystemSetupTests(unittest.TestCase):
         execv.assert_called_once_with(str(executable), [str(executable), str(root / "setupOnmyoji.py"), "--resume-after-update"])
         run.assert_not_called()
 
+    def test_restart_updated_setup_preserves_service_authorization_only_when_resuming_daemon(self) -> None:
+        root = Path("instance with spaces")
+        executable = Path("Python with spaces/python.exe")
+        for platform in ("win32", "linux"):
+            for restart_daemon in (False, True):
+                with self.subTest(platform=platform, restart_daemon=restart_daemon):
+                    with patch.object(MODULE.sys, "platform", platform), patch.object(MODULE.os, "execv") as execv, patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+                        if platform == "win32":
+                            with self.assertRaises(SystemExit):
+                                MODULE._restart_updated_setup(root, executable, restart_daemon=restart_daemon, use_sudo=True)
+                            arguments = run.call_args.args[0]
+                        else:
+                            MODULE._restart_updated_setup(root, executable, restart_daemon=restart_daemon, use_sudo=True)
+                            arguments = execv.call_args.args[1]
+                    expected = [str(executable), str(root / "setupOnmyoji.py"), "--resume-after-update"]
+                    if restart_daemon:
+                        expected.extend(["--restart-daemon-after-update", "--update-service-sudo"])
+                    self.assertEqual(arguments, expected)
+
     def test_restart_updated_setup_reports_launch_error(self) -> None:
         with patch.object(MODULE.sys, "platform", "win32"), patch.object(MODULE.subprocess, "run", side_effect=OSError("execução recusada")):
             with self.assertRaisesRegex(MODULE.GitSetupError, "Não foi possível reiniciar"):
@@ -1468,7 +1488,10 @@ def test_daemon_wizard_restarts_system_service_with_sudo_confirmation(tmp_path, 
     answers = iter(["w", "n", "s", "", "s", "s", "x"])
     def run(args, **_kwargs):
         calls.append(args)
-        output = '[{"label":"Runtime Python do daemon","state":"ok"}]' if "daemon-validation-json" in args else "ok"
+        if "daemon-status" in args:
+            output = '{"mode":"service","active":true,"reachable":true}'
+        else:
+            output = '[{"label":"Runtime Python do daemon","state":"ok"}]' if "daemon-validation-json" in args else "ok"
         return subprocess.CompletedProcess(args, 0, stdout=output, stderr="")
     monkeypatch.setattr(MODULE, "os", LinuxOs())
     monkeypatch.setattr(MODULE, "load_execution_profile", lambda _root: {})
@@ -1479,6 +1502,88 @@ def test_daemon_wizard_restarts_system_service_with_sudo_confirmation(tmp_path, 
 
     MODULE.daemon_menu(tmp_path)
 
-    restart = [args for args in calls if "service-restart" in args]
+    restart = [args for args in calls if "daemon-restart" in args]
     assert len(restart) == 1
     assert "--use-sudo" in restart[0]
+
+
+@pytest.mark.parametrize("answer, expected", [("s", True), ("sim", True), ("", None), ("n", None), ("x", None), ("\x1b", None)])
+def test_global_runtime_installation_requires_explicit_sudo_authorization(tmp_path, monkeypatch, answer, expected):
+    """Enter e cancelamento nunca autorizam uma instalação administrativa."""
+    prompts = []
+    monkeypatch.setattr(MODULE.python_runtime, "installation_requires_sudo", lambda _root: True)
+    monkeypatch.setattr(MODULE, "dedicated_child_profile", lambda _root: {})
+    monkeypatch.setattr(MODULE, "linux_tool", lambda _name: "/usr/bin/sudo")
+    monkeypatch.setattr(MODULE, "prompt", lambda text: prompts.append(text) or answer)
+
+    assert MODULE.authorize_runtime_installation(tmp_path) is expected
+    assert prompts == ["Autorizar a instalação global com sudo? [s/N]: "]
+
+
+def test_writable_runtime_does_not_request_sudo(tmp_path, monkeypatch):
+    monkeypatch.setattr(MODULE.python_runtime, "installation_requires_sudo", lambda _root: False)
+    monkeypatch.setattr(MODULE, "prompt", lambda _text: pytest.fail("Um destino gravável dispensa sudo."))
+    assert MODULE.authorize_runtime_installation(tmp_path) is False
+
+
+@pytest.mark.parametrize("dedicated, sudo", [(True, "/usr/bin/sudo"), (False, None)])
+def test_unavailable_runtime_administration_stops_before_confirmation(tmp_path, monkeypatch, capsys, dedicated, sudo):
+    """A conta dedicada não recebe sudo, e a ausência da ferramenta tem orientação própria."""
+    monkeypatch.setattr(MODULE.python_runtime, "installation_requires_sudo", lambda _root: True)
+    monkeypatch.setattr(MODULE, "dedicated_child_profile", lambda _root: {"account": "shikigami"} if dedicated else {})
+    monkeypatch.setattr(MODULE, "linux_tool", lambda _name: sudo)
+    monkeypatch.setattr(MODULE, "prompt", lambda _text: pytest.fail("Não há como autorizar esta instalação."))
+    assert MODULE.authorize_runtime_installation(tmp_path) is None
+    output = capsys.readouterr().out
+    assert "isolated" in output
+    assert ("conta instaladora" if dedicated else "sudo não está disponível") in output
+
+
+def test_runtime_destination_check_failure_is_reported_without_installation(tmp_path, monkeypatch, capsys):
+    def fail(_root):
+        raise MODULE.python_runtime.RuntimeError("Não foi possível consultar o Python.")
+    monkeypatch.setattr(MODULE.python_runtime, "installation_requires_sudo", fail)
+    assert MODULE.authorize_runtime_installation(tmp_path) is None
+    assert "Não foi possível consultar o Python." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("isolated, authorization, installation_code, validation_code", [
+    (False, True, 0, 0), (False, False, 0, 0), (True, False, 0, 0),
+    (False, None, 0, 0), (False, True, 2, 0), (False, True, 0, 2),
+])
+def test_daemon_global_installation_uses_installer_and_validates_dedicated_account(tmp_path, monkeypatch, capsys, isolated, authorization, installation_code, validation_code):
+    """A instalação global usa o instalador; a confirmação final exige a conta operacional."""
+    project = tmp_path / "onmyoji-daemon"
+    project.mkdir()
+    (project / "setupDaemon.py").touch()
+    profile = {"mode": "dedicated", "validated": True, "account": "shikigami", "home": str(tmp_path), "setup_python": "/usr/bin/python3"}
+    calls = []
+    answers = iter(["1", "x"])
+    def run(arguments, **_kwargs):
+        calls.append(arguments)
+        code = validation_code if "--check-only" in arguments else installation_code if "--repair" in arguments else 0
+        return subprocess.CompletedProcess(arguments, code, "ok", "")
+    monkeypatch.setattr(MODULE, "load_execution_profile", lambda _root: profile)
+    monkeypatch.setattr(MODULE, "linux_current_user", lambda: "instalador")
+    monkeypatch.setattr(MODULE, "authorize_runtime_installation", lambda _root: authorization)
+    monkeypatch.setattr(MODULE.python_runtime, "is_isolated", lambda _root: isolated)
+    monkeypatch.setattr(MODULE, "account_command", lambda _account, _home, arguments, _env: ["as-dedicated", *arguments])
+    monkeypatch.setattr(MODULE, "prompt", lambda _text: next(answers))
+    monkeypatch.setattr(MODULE.subprocess, "run", run)
+
+    MODULE.daemon_menu(tmp_path)
+
+    installations = [arguments for arguments in calls if "--repair" in arguments]
+    validations = [arguments for arguments in calls if "--check-only" in arguments]
+    if authorization is None:
+        assert installations == validations == []
+        return
+    assert len(installations) == 1
+    assert (installations[0][0] == "as-dedicated") == isolated
+    assert ("--use-sudo" in installations[0]) == authorization
+    assert len(validations) == (0 if isolated or installation_code else 1)
+    if validations:
+        assert validations[0][0] == "as-dedicated"
+        assert "--repair" not in validations[0] and "--use-sudo" not in validations[0]
+    output = capsys.readouterr().out
+    assert ("Daemon instalado e runtime Python validado." in output) == (installation_code == validation_code == 0)

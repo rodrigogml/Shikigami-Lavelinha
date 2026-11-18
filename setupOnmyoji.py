@@ -1113,11 +1113,42 @@ def _updated_setup_python(root: Path) -> Path:
     return executable.resolve()
 
 
-def _restart_updated_setup(root: Path, executable: Path, *, restart_daemon: bool) -> None:
+def _authorize_update_service(root: Path, *, use_sudo: bool = False) -> bool | None:
+    """Autoriza sudo uma vez para o serviço de sistema; None cancela a operação."""
+    service = daemon_management.service_info(root)
+    if (
+        not service or os.name == "nt"
+        or str(service.get("scope") or "system") != "system"
+        or getattr(os, "geteuid", lambda: 0)() == 0
+    ):
+        return False
+    if use_sudo:
+        return True
+    if prompt("Autorizar sudo para parar e retomar o serviço durante a atualização? [s/N]: ").strip().casefold() in {"s", "sim"}:
+        return True
+    return None
+
+
+def _resume_updated_daemon(root: Path, *, use_sudo: bool = False) -> tuple[bool, str]:
+    """Retoma o serviço registrado ou o processo local somente após migrar o estado."""
+    try:
+        authorized = False
+        if daemon_management.service_info(root):
+            authorized = _authorize_update_service(root, use_sudo=use_sudo)
+            if authorized is None:
+                return False, "A autorização de sudo para iniciar o serviço foi cancelada. Inicie-o no submenu Serviço."
+        return daemon_management.daemon_action(root, "start", use_sudo=authorized)
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, f"Não foi possível retomar o daemon: {error}"
+
+
+def _restart_updated_setup(root: Path, executable: Path, *, restart_daemon: bool, use_sudo: bool = False) -> None:
     """Reabre o setup atualizado sem quebrar caminhos com espaços no Windows."""
     arguments = [str(executable), str(root / "setupOnmyoji.py"), "--resume-after-update"]
     if restart_daemon:
         arguments.append("--restart-daemon-after-update")
+        if use_sudo:
+            arguments.append("--update-service-sudo")
     try:
         if sys.platform == "win32":
             # os.execv usa a CRT no Windows e pode desmembrar caminhos com espaços.
@@ -1138,6 +1169,7 @@ def update_upstream(root: Path) -> None:
     flow_heading("Atualizar Onmyōji", "Incorpora a main do upstream à branch atual")
     stash_id = ""
     restart_daemon = False
+    use_sudo = False
     try:
         if not _git_remote_url(root, "upstream"):
             raise GitSetupError("O remoto upstream não está configurado. Configure-o em Git e sincronização.")
@@ -1210,19 +1242,29 @@ def update_upstream(root: Path) -> None:
         if root.resolve() == ROOT.resolve():
             # Verifica o Python selecionado antes de interromper o daemon.
             executable = _updated_setup_python(root)
-            if daemon_management.running_process(root):
-                ok, message = daemon_management.stop_background(root)
-                if not ok:
-                    raise GitSetupError("A atualização foi baixada, mas o daemon não pôde ser parado para migrar o estado: " + message)
-                restart_daemon = True
-                note("Daemon local encerrado para a migração de estado; ele será retomado após o novo setup.")
+            try:
+                status = daemon_management.daemon_status(root)
+                service = status.get("mode") == "service"
+                if status.get("active") or status.get("reachable"):
+                    if service:
+                        authorized = _authorize_update_service(root)
+                        if authorized is None:
+                            raise GitSetupError("A atualização foi baixada, mas a parada do serviço para migrar o estado foi cancelada. O daemon continua em execução.")
+                        use_sudo = authorized
+                    ok, message = daemon_management.daemon_action(root, "stop", use_sudo=use_sudo)
+                    if not ok:
+                        raise GitSetupError("A atualização foi baixada, mas o daemon não pôde ser parado para migrar o estado: " + message)
+                    restart_daemon = True
+                    note(("Serviço do daemon parado" if service else "Daemon local encerrado") + " para a migração de estado; ele será retomado após o novo setup.")
+            except (OSError, subprocess.SubprocessError) as error:
+                raise GitSetupError(f"A atualização foi baixada, mas não foi possível preparar a parada do daemon: {error}") from error
             note("Reiniciando o setup atualizado para verificar versões e concluir migrações.")
-            _restart_updated_setup(root, executable, restart_daemon=restart_daemon)
+            _restart_updated_setup(root, executable, restart_daemon=restart_daemon, use_sudo=use_sudo)
         note("Execute a versão atualizada do setup para concluir a verificação de layout.")
     except GitSetupError as error:
         result(False, str(error))
         if restart_daemon:
-            note("O daemon permanece parado até concluir a migração. Reexecute o setup com o Python configurado.")
+            note("O daemon permanece parado. Reexecute o setup com o Python configurado para concluir a migração e inicie-o no menu Daemon.")
         if stash_id:
             note(f"Stash temporário: {stash_id}. Confira seu estado antes de restaurá-lo ou removê-lo.")
 
@@ -1376,7 +1418,19 @@ def run_dedicated_menu(root: Path, destination: str) -> bool:
 
 
 def launch_mcp_menu(root: Path) -> bool:
-    """Prepara o runtime único e abre o setup MCP com seu próprio Python."""
+    """Prepara o MCP global como instalador e abre as integrações na conta operacional.
+
+    A criação do runtime isolado pertence à conta dedicada. No modo global,
+    somente o pip recebe sudo quando necessário e autorizado; o menu dedicado
+    verifica novamente as dependências antes de usar o Python selecionado.
+    """
+    try:
+        isolated = python_runtime.is_isolated(root)
+    except python_runtime.RuntimeError as error:
+        result(False, str(error))
+        return False
+    if isolated and run_dedicated_menu(root, "mcp"):
+        return True
     if not mcp_runtime_ready(root):
         flow_heading("Preparação do MCP", "Componentes necessários no runtime Python da instância")
         note("O runtime MCP está ausente ou incompleto; ele precisa ser preparado antes de abrir as integrações.")
@@ -1384,10 +1438,16 @@ def launch_mcp_menu(root: Path) -> bool:
             result(False, "A abertura do MCP foi cancelada sem alterar o runtime.")
             return False
         try:
-            note(ensure_mcp_runtime(root, progress=note))
+            use_sudo = authorize_runtime_installation(root)
+            if use_sudo is None:
+                return False
+            installation_options = {"use_sudo": True} if use_sudo else {}
+            note(ensure_mcp_runtime(root, progress=note, **installation_options))
         except McpRuntimeError as error:
             result(False, f"Não foi possível preparar o runtime MCP: {error}")
             return False
+    if not isolated and run_dedicated_menu(root, "mcp"):
+        return True
     try:
         executable = mcp_runtime_python(root)
     except (OSError, python_runtime.RuntimeError) as error:
@@ -1403,6 +1463,31 @@ def launch_mcp_menu(root: Path) -> bool:
         return False
     if completed.returncode:
         result(False, f"O setup MCP terminou com código {completed.returncode}.")
+        return False
+    return True
+
+
+def launch_keepass_menu(root: Path) -> bool:
+    """Abre os cofres compartilhados na conta operacional, sem preparar o SDK MCP.
+
+    Antes da criação do runtime isolado, usa o Python-base configurado. Cofres,
+    perfis e o provedor da senha mestra continuam pertencendo à conta do Shikigami.
+    """
+    if run_dedicated_menu(root, "keepass"):
+        return True
+    try:
+        executable = python_runtime.python(root)
+        if not executable.is_file() and python_runtime.is_isolated(root):
+            executable = python_runtime.base_python(root)
+        if not executable.is_file():
+            result(False, "O Python configurado para abrir o KeePass não foi encontrado.")
+            return False
+        completed = subprocess.run([str(executable), "-B", str(root / "onmyoji-daemon" / "setupMcp.py"), "--onmyoji-root", str(root), "--action", "vault"], check=False)
+    except (OSError, python_runtime.RuntimeError) as error:
+        result(False, f"Não foi possível abrir o KeePass: {error}")
+        return False
+    if completed.returncode:
+        result(False, f"O configurador KeePass terminou com código {completed.returncode}.")
         return False
     return True
 
@@ -1480,6 +1565,7 @@ def configure_python_runtime(root: Path, data: dict[str, object]) -> dict[str, o
         flow_heading("Instalação inicial", "Runtime Python do Shikigami")
         print("  1. Ambiente isolado — cria /venv na raiz da instância.")
         print("  2. Python global — instala dependências no interpretador selecionado.")
+        note("O modo global permite atualizar bibliotecas compartilhadas com o sistema operacional.")
         default_mode = "2" if data.get("python_mode") == "global" else "1"
         mode = prompt(f"Opção [{default_mode}]: ").strip().casefold() or default_mode
         if mode in {"x", "\x1b"}: return None
@@ -1774,7 +1860,7 @@ def configure_mcp_password_reference(root: Path, integration: str, default_entry
     """Seleciona um perfil MCP e garante uma senha na entrada escolhida."""
     profiles = McpConfiguration(root).vault_profile_names()
     if not profiles:
-        result(False, "Nenhum perfil de vault MCP disponível. Configure-o primeiro no menu MCP.")
+        result(False, "Nenhum perfil de cofre disponível. Configure-o primeiro em K. KeePass no menu principal.")
         return None
     selected = current_profile if current_profile in profiles else profiles[0]
     profile = flow_choice(f"{integration} · Perfil de vault MCP", profiles, selected)
@@ -2199,6 +2285,7 @@ def _configure_python_runtime(root: Path, data: dict[str, object]) -> dict[str, 
     flow_heading("Python e bibliotecas", "Runtime único do Shikigami")
     print("  1. Ambiente isolado — cria e usa /venv na raiz da instância.")
     print("  2. Python global — instala e usa componentes no interpretador escolhido.")
+    note("O modo global permite atualizar bibliotecas compartilhadas com o sistema operacional.")
     default = "1" if data["python_mode"] == "isolated" else "2"
     mode = prompt(f"Modo [{default}]: ").strip().casefold() or default
     if mode in {"x", "\x1b"}:
@@ -2228,6 +2315,34 @@ def _configure_python_runtime(root: Path, data: dict[str, object]) -> dict[str, 
     return candidate if ok else data
 
 
+def authorize_runtime_installation(root: Path) -> bool | None:
+    """Retorna a autorização de sudo, ou ``None`` para cancelar a instalação.
+
+    Destinos graváveis dispensam confirmação. A conta dedicada nunca solicita
+    sudo: a instalação global administrativa parte dos menus centrais do daemon
+    ou MCP, sob a conta instaladora.
+    Falhas ao verificar o destino interrompem a ação com diagnóstico operacional.
+    """
+    try:
+        if not python_runtime.installation_requires_sudo(root):
+            return False
+    except (OSError, python_runtime.RuntimeError) as error:
+        result(False, str(error))
+        return None
+    if dedicated_child_profile(root):
+        result(False, "O Python global exige permissão administrativa. Volte à central pela conta instaladora e prepare os componentes pelo menu Daemon ou MCP, conforme a funcionalidade desejada, ou selecione isolated em Python e bibliotecas.")
+        return None
+    if not linux_tool("sudo"):
+        result(False, "O Python global exige escrita administrativa e sudo não está disponível. Execute esta instalação como administrador ou selecione isolated em Python e bibliotecas.")
+        return None
+    note("O destino do Python global não permite escrita por esta conta. Somente a instalação das bibliotecas usará sudo.")
+    note("O sudo seguirá a política desta conta e só solicitará senha se necessário, diretamente no terminal.")
+    if prompt("Autorizar a instalação global com sudo? [s/N]: ").strip().casefold() not in {"s", "sim"}:
+        result(False, "Instalação global cancelada. Para instalar sem privilégios administrativos, selecione isolated em Python e bibliotecas.")
+        return None
+    return True
+
+
 def python_menu(root: Path) -> None:
     """Centraliza o runtime único e a manutenção explícita de bibliotecas."""
     data = load_system(root)
@@ -2255,13 +2370,20 @@ def python_menu(root: Path) -> None:
             _show_python_components(root)
         elif choice == "3":
             try:
-                ok, message = daemon_management.ensure_runtime(root, show_progress=True)
+                use_sudo = authorize_runtime_installation(root)
+                if use_sudo is None:
+                    continue
+                ok, message = daemon_management.ensure_runtime(root, show_progress=True, use_sudo=use_sudo)
                 result(ok, message)
             except (OSError, ValueError, python_runtime.RuntimeError) as error:
                 result(False, str(error))
         elif choice == "4":
             try:
-                note(ensure_mcp_runtime(root, progress=note))
+                use_sudo = authorize_runtime_installation(root)
+                if use_sudo is None:
+                    continue
+                installation_options = {"use_sudo": True} if use_sudo else {}
+                note(ensure_mcp_runtime(root, progress=note, **installation_options))
                 result(True, "Componentes MCP preparados no runtime único.")
             except McpRuntimeError as error:
                 result(False, str(error))
@@ -2280,11 +2402,15 @@ def python_menu(root: Path) -> None:
                 result(False, str(error))
         elif choice == "7":
             try:
-                ok, message = daemon_management.ensure_runtime(root, show_progress=True)
+                use_sudo = authorize_runtime_installation(root)
+                if use_sudo is None:
+                    continue
+                ok, message = daemon_management.ensure_runtime(root, show_progress=True, use_sudo=use_sudo)
                 if not ok:
                     result(False, message)
                     continue
-                note(ensure_mcp_runtime(root, progress=note))
+                installation_options = {"use_sudo": True} if use_sudo else {}
+                note(ensure_mcp_runtime(root, progress=note, **installation_options))
                 install_document_runtime(root, tier="base", progress=note)
                 result(True, "Todos os componentes básicos foram preparados no runtime único.")
             except (DocumentError, McpRuntimeError, OSError, ValueError, python_runtime.RuntimeError) as error:
@@ -2517,7 +2643,14 @@ def notification_menu(root: Path) -> None:
                 if changes["enabled"]:
                     local_daemon_rpc(root, "enable", {"service": "telegram"})
                     state = local_daemon_rpc(root, "start", {"service": "telegram"})
-                    result(state.get("state") == "running", "Ingresso configurado; confira o diagnóstico." if state.get("state") == "running" else str(state.get("last_error") or "Não foi possível iniciar o gateway."))
+                    if state.get("state") == "running":
+                        health = local_daemon_rpc(root, "notification.status").get("http", {})
+                        if health.get("state") == "failed":
+                            result(False, "Configuração salva, mas o listener de eventos não está disponível: " + str(health.get("last_error") or "Consulte o diagnóstico de eventos."))
+                        else:
+                            result(True, "Ingresso configurado; confira o diagnóstico.")
+                    else:
+                        result(False, str(state.get("last_error") or "Não foi possível iniciar o gateway."))
                 else:
                     result(True, "Ingresso desabilitado.")
                 continue
@@ -2526,6 +2659,11 @@ def notification_menu(root: Path) -> None:
                 diagnostic = local_daemon_rpc(root, "notification.diagnose")
                 for label, ready in diagnostic["checks"].items():
                     result(bool(ready), label.replace("_", " "))
+                http = diagnostic.get("http", {})
+                if http.get("last_error"):
+                    result(False, str(http["last_error"]))
+                elif http:
+                    note(f"Listener HTTP: {http.get('host')}:{http.get('port')} · {http.get('state')}")
                 note("Execuções: " + json.dumps(diagnostic["counts"], ensure_ascii=False))
                 continue
             if choice == "2":
@@ -2564,8 +2702,10 @@ def notification_menu(root: Path) -> None:
                 alert("Opção inválida. Escolha uma das alternativas ou cancele."); continue
             saved = save_notification_configuration(root, changes)
             result(True, "Configuração salva.")
+            if saved.get("http", {}).get("state") == "failed":
+                result(False, str(saved["http"].get("last_error") or "O listener de eventos não está disponível; consulte o diagnóstico."))
             if saved.get("restart_required"):
-                note("Reinicie o processo do daemon para aplicar a nova porta.")
+                note("Reinicie o daemon para aplicar a nova porta.")
         except (OSError, ValueError, RpcError) as error:
             result(False, str(error))
 
@@ -2641,6 +2781,82 @@ def test_agent_with_runtime_repair(run_test, repair_runtime) -> bool:
     return tested.returncode == 0
 
 
+def request_telegram_pairing(root: Path, execute, *, timeout: float = 30.0, progress=None) -> tuple[dict | None, str]:
+    """Aguarda supervisor e gateway antes de solicitar um único PIN de pareamento.
+
+    ``execute`` roda o CLI no runtime e na identidade operacional da instância.
+    Consultas de prontidão podem ser repetidas até o prazo; a solicitação do PIN
+    nunca é repetida automaticamente. O retorno distingue indisponibilidade do
+    controle local, Telegram desabilitado, falha do gateway e erro no pareamento.
+    Diagnósticos externos são sanitizados e o PIN só sai no resultado válido.
+    """
+    prefix = [sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root)]
+
+    def safe_detail(value: str) -> str:
+        value = re.sub(r"(?i)(https?://api\.telegram\.org/bot)[^/\s]+", r"\1[redacted]", value)
+        value = re.sub(r"(?i)\b(token|password|secret|pin|api[_-]?key|access[_-]?token)\b[\"']?\s*[:=]\s*[\"']?[^\s,}\"']+", r"\1=[redacted]", value)
+        value = re.sub(r"(?i)\bbearer\s+\S+", "Bearer [redacted]", value)
+        return " ".join(value.split())[-500:]
+
+    def detail(completed) -> str:
+        return safe_detail(completed.stderr or completed.stdout or f"O comando terminou com código {completed.returncode}.")
+
+    def decoded(completed):
+        try:
+            return json.loads(completed.stdout)
+        except (ValueError, TypeError):
+            return None
+
+    deadline = time.monotonic() + timeout
+    next_notice = 0.0
+    supervisor_seen = False
+    last_detail = "O controle local ainda não respondeu."
+    try:
+        while True:
+            supervisor = execute([*prefix, "list-services"])
+            if supervisor.returncode == 0:
+                supervisor_seen = True
+                services = decoded(supervisor)
+                if not isinstance(services, list):
+                    return None, "O daemon respondeu, mas a lista de serviços recebida é inválida. Consulte o diagnóstico do daemon."
+                telegram = next((service for service in services if isinstance(service, dict) and service.get("name") == "telegram"), None)
+                if telegram is None:
+                    return None, "O daemon respondeu, mas não registrou o gateway Telegram nesta instância. Consulte o diagnóstico do daemon."
+                state = telegram.get("state")
+                if state == "failed":
+                    reason = safe_detail(str(telegram.get("last_error") or "o serviço terminou sem informar a causa"))
+                    return None, "O daemon está respondendo, mas o gateway Telegram falhou. " + reason + " Consulte o diagnóstico do Telegram."
+                if state != "running" and telegram.get("enabled") is not True:
+                    return None, "O daemon está respondendo, mas o gateway Telegram está desabilitado. Ative-o em Gateway Telegram > 1. Gateway Telegram antes de parear um owner."
+                if state == "running":
+                    status = execute([*prefix, "telegram", "status"])
+                    information = decoded(status)
+                    if status.returncode == 0 and isinstance(information, dict) and information.get("listener") == "running":
+                        break
+                    last_detail = detail(status) if status.returncode else "O gateway ainda não confirmou o listener em execução."
+                else:
+                    last_detail = f"O gateway Telegram ainda está no estado {safe_detail(str(state or 'desconhecido'))}."
+            else:
+                last_detail = detail(supervisor)
+            now = time.monotonic()
+            if now >= deadline:
+                subject = "O daemon respondeu, mas não foi possível confirmar o gateway Telegram pronto" if supervisor_seen else "Não foi possível confirmar a comunicação com o daemon desta instância"
+                return None, f"{subject} em até {timeout:g} segundos. {last_detail} Consulte o diagnóstico do daemon e do Telegram."
+            if progress and now >= next_notice:
+                progress("Aguardando o controle local e a inicialização do gateway Telegram.")
+                next_notice = now + 5
+            time.sleep(min(0.3, deadline - now))
+        requested = execute([*prefix, "telegram", "pair-request"])
+        if requested.returncode:
+            return None, "O daemon e o gateway Telegram responderam, mas não foi possível solicitar o pareamento. " + detail(requested)
+        payload = decoded(requested)
+        if not isinstance(payload, dict) or not isinstance(payload.get("pin"), str) or not re.fullmatch(r"[0-9]{6}", payload["pin"]):
+            return None, "O daemon e o gateway Telegram responderam, mas o código de pareamento recebido é inválido."
+        return payload, ""
+    except (OSError, subprocess.SubprocessError) as error:
+        return None, "Não foi possível executar o controle local do pareamento. " + safe_detail(str(error))
+
+
 def daemon_menu(root: Path) -> None:
     project = root / "onmyoji-daemon"
     script = project / "setupDaemon.py"
@@ -2677,10 +2893,15 @@ def daemon_menu(root: Path) -> None:
 
     def lifecycle(action: str, extra: list[str] | None = None, input_value: str | None = None) -> bool:
         visible = action in {"install-service", "configure-windows-service-account", "configure-service-resources", "repair-service-permissions", "service-security", "remove-service", "service-start", "service-stop", "service-restart", "service-force-stop"}
+        daemon_operation = action in {"daemon-start", "daemon-stop", "daemon-restart", "daemon-force-stop"}
+        if daemon_operation:
+            visible = service_installed()
         try:
-            completed = command([sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), action, *(extra or [])], quiet=not visible, input_value=input_value, administrative=visible)
+            completed = command([sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), action, *(extra or [])], quiet=not visible, input_value=input_value, administrative=visible, use_runtime=daemon_operation)
         except KeyboardInterrupt:
             result(False, "Operação interrompida pelo usuário."); return False
+        except (OSError, subprocess.SubprocessError) as error:
+            result(False, f"Não foi possível executar o controle do daemon: {error}"); return False
         detail = (completed.stdout or completed.stderr or ("Operação concluída." if completed.returncode == 0 else f"O comando terminou com código {completed.returncode}; consulte a saída exibida acima.")).strip()
         result(completed.returncode == 0, detail)
         return completed.returncode == 0
@@ -2691,10 +2912,15 @@ def daemon_menu(root: Path) -> None:
             try: scope = json.loads((root / "configs" / "daemon" / "service.json").read_text(encoding="utf-8")).get("scope", "system")
             except (OSError, ValueError): scope = "system"
             if scope == "system" and hasattr(os, "geteuid") and os.geteuid() != 0:
-                note("Esta operação exige sudo. A senha será solicitada pelo sistema, sem ser lida ou armazenada pelo Onmyōji.")
+                note("Esta operação usa sudo. Se necessário, o sistema solicitará a senha, sem que o Onmyōji a leia ou armazene.")
                 if prompt("Continuar? [s/N]: ").strip().casefold() not in {"s", "sim"}: result(False, "Operação cancelada."); return False
                 extras.append("--use-sudo")
         return lifecycle(action, extras)
+
+    def daemon_control(action: str) -> bool:
+        """Delega o ciclo de vida ao controle único, preservando a conta operacional."""
+        operation = {"start": "daemon-start", "stop": "daemon-stop", "restart": "daemon-restart", "force": "daemon-force-stop"}[action]
+        return privileged_service_action(operation) if service_installed() else lifecycle(operation)
 
     def install_daemon() -> bool:
         """Prepara, configura e valida o runtime escolhido pelo usuário."""
@@ -2714,7 +2940,17 @@ def daemon_menu(root: Path) -> None:
         if os.name == "nt": print("    • pywin32 — integração opcional com Serviço do Windows.")
         print("\n  [4/4] Preparando o runtime e os componentes")
         note("O daemon instala automaticamente os componentes necessários no runtime único; a manutenção manual fica em Python e bibliotecas.")
-        completed = command([sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), "install-runtime", "--repair"], quiet=False)
+        use_sudo = authorize_runtime_installation(root)
+        if use_sudo is None:
+            return False
+        global_installation = not python_runtime.is_isolated(root)
+        arguments = [sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), "install-runtime", "--repair"]
+        if use_sudo:
+            arguments.append("--use-sudo")
+        completed = command(arguments, quiet=False, administrative=global_installation)
+        if completed.returncode == 0 and global_installation and dedicated_execution:
+            note("Validando as bibliotecas globais sob a conta dedicada do Shikigami.")
+            completed = command([sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), "install-runtime", "--check-only"], quiet=False)
         result(completed.returncode == 0, "Daemon instalado e runtime Python validado." if completed.returncode == 0 else "A instalação do daemon não foi concluída.")
         return completed.returncode == 0
 
@@ -2767,8 +3003,20 @@ def daemon_menu(root: Path) -> None:
         checks = validation("daemon-validation-json")
         return any(check.get("label") == "Runtime Python do daemon" and check.get("state") == "ok" for check in checks)
     def service_installed() -> bool: return (root / "configs" / "daemon" / "service.json").is_file()
+    def daemon_status() -> dict:
+        try:
+            completed = command([sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), "daemon-status"], quiet=True, use_runtime=True)
+            value = json.loads(completed.stdout)
+        except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+            return {}
+        return value if completed.returncode == 0 and isinstance(value, dict) else {}
+
+    def daemon_active() -> bool:
+        state = daemon_status()
+        return state.get("active") is True or state.get("reachable") is True
+
     def daemon_running() -> bool:
-        return command([sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), "list-services"], quiet=True).returncode == 0
+        return command([sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), "list-services"], quiet=True, use_runtime=True).returncode == 0
 
     def wait_for_daemon_ready() -> bool:
         """Espera o supervisor responder após uma inicialização ou reinício."""
@@ -2782,10 +3030,20 @@ def daemon_menu(root: Path) -> None:
         """Aguarda o módulo Telegram responder após iniciar ou reiniciar o daemon."""
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
-            status = command([sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), "telegram", "status"], quiet=True)
-            if status.returncode == 0: return True
+            status = command([sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), "telegram", "status"], quiet=True, use_runtime=True)
+            try:
+                ready = json.loads(status.stdout)
+            except (ValueError, TypeError):
+                ready = None
+            if status.returncode == 0 and isinstance(ready, dict) and ready.get("listener") == "running": return True
             time.sleep(0.3)
         return False
+
+    def pairing_request() -> dict | None:
+        payload, message = request_telegram_pairing(root, lambda arguments: command(arguments, quiet=True, use_runtime=True), progress=note)
+        if payload is None:
+            result(False, message)
+        return payload
 
     def sync_telegram_commands() -> bool:
         """Confirma o catálogo atual para todos os owners na configuração local."""
@@ -2821,17 +3079,26 @@ def daemon_menu(root: Path) -> None:
             return {}
 
     def offer_restart(reason: str = "A alteração") -> None:
-        if not daemon_running(): return
+        if not daemon_active(): return
         note(f"{reason} só entra em vigor no gateway após reiniciar o daemon.")
         answer = prompt("O daemon está em execução; reiniciar agora para efetivar a alteração? [S/n]: ").strip().casefold()
         if answer not in {"", "s", "sim"}: result(False, f"{reason} foi salva, mas o gateway continua com a configuração anterior até o próximo reinício."); return
-        if service_installed(): privileged_service_action("service-restart")
-        elif lifecycle("process-stop"): lifecycle("process-start")
+        restarted = daemon_control("restart")
+        if not restarted:
+            return
+        if not wait_for_daemon_ready():
+            result(False, "O reinício foi solicitado, mas o controle local do daemon ainda não respondeu. Consulte o diagnóstico do daemon.")
+            return
+        try:
+            enabled = json.loads((root / "configs" / "daemon" / "services.json").read_text(encoding="utf-8")).get("telegram", {}).get("enabled") is True
+        except (OSError, ValueError, AttributeError):
+            enabled = False
+        if enabled and not wait_for_telegram_ready():
+            result(False, "O daemon voltou a responder, mas o gateway Telegram ainda não está pronto. Consulte o diagnóstico do Telegram antes de parear um owner.")
 
     def service_running() -> bool:
-        status = command([sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), "service-status"], quiet=True)
-        text = (status.stdout + "\n" + status.stderr).upper()
-        return "RUNNING" in text or "ACTIVE: ACTIVE" in text
+        status = daemon_status()
+        return status.get("mode") == "service" and status.get("service_active", status.get("active")) is True
 
     def daemon_wizard() -> None:
         """Configura e valida exclusivamente a plataforma local do daemon."""
@@ -2886,17 +3153,13 @@ def daemon_menu(root: Path) -> None:
         print("\n  5. Teste controlado do agente Codex")
         if not test_agent_with_runtime_repair(lambda: command([sys.executable, str(script), "--onmyoji-root", str(root), "--action", "test-agent"], quiet=True, use_runtime=True), install_daemon): return
         print("\n  6. Início da plataforma")
-        if daemon_running():
+        if daemon_active():
             restart = prompt("O daemon está em execução. Reiniciar agora para aplicar a configuração? [S/n]: ").strip().casefold()
             if restart not in {"", "s", "sim"}:
                 result(False, "Configuração salva e testada, mas pendente de aplicação. Reinicie o daemon quando desejar concluir o wizard.")
                 return
-            if service_installed():
-                if not privileged_service_action("service-restart"): return
-            elif lifecycle("process-stop"):
-                if not lifecycle("process-start"): return
-            else: return
-        elif not (privileged_service_action("service-start") if service_installed() else lifecycle("process-start")):
+            if not daemon_control("restart"): return
+        elif not daemon_control("start"):
             return
         if not wait_for_daemon_ready():
             result(False, "O comando de início foi aceito, mas o daemon não respondeu dentro de 10 segundos. Consulte Operação do daemon.")
@@ -3025,7 +3288,7 @@ def daemon_menu(root: Path) -> None:
                     extras = ["--name", name, "--description", description, "--scope", "system", "--windows-account", account]
                     if password: extras.append("--password-stdin")
                     if lifecycle("install-service", extras, password if password else None) and prompt("Iniciar agora e validar o registro? [S/n]: ").strip().casefold() in {"", "s", "sim"}:
-                        lifecycle("service-start"); lifecycle("service-status")
+                        daemon_control("start"); lifecycle("service-status")
                     continue
                 limits = choose_service_limits()
                 if limits is None: result(False, "Instalação do serviço cancelada."); continue
@@ -3081,9 +3344,9 @@ def daemon_menu(root: Path) -> None:
             choice = prompt("Opção: ").strip().casefold()
             if choice in {"x", "\x1b"}: return
             if choice == "1": lifecycle("service-status")
-            elif choice == "2": privileged_service_action("service-stop" if service_running() else "service-start")
-            elif choice == "3": privileged_service_action("service-restart")
-            elif choice == "4": privileged_service_action("service-force-stop")
+            elif choice == "2": daemon_control("stop" if service_running() else "start")
+            elif choice == "3": daemon_control("restart")
+            elif choice == "4": daemon_control("force")
             elif choice == "5":
                 confirmation = prompt("Digite remover para confirmar: ").strip()
                 if confirmation == "remover": privileged_service_action("remove-service")
@@ -3473,7 +3736,7 @@ def daemon_menu(root: Path) -> None:
                 listed = command([sys.executable, str(script), "--onmyoji-root", str(root), "--action", "profiles"], quiet=True)
                 try: values = json.loads(listed.stdout)
                 except json.JSONDecodeError: values = []
-                if not values: result(False, "Nenhum perfil de vault disponível. Configure-o primeiro em MCP > Perfis de vault."); continue
+                if not values: result(False, "Nenhum perfil de cofre disponível. Configure-o primeiro em K. KeePass no menu principal."); continue
                 print()
                 for index, profile in enumerate(values, 1): item(f"{index}.", profile)
                 item("X.", "Voltar")
@@ -3522,11 +3785,10 @@ def daemon_menu(root: Path) -> None:
                 tested = command([sys.executable, str(script), "--onmyoji-root", str(root), "--action", "test-telegram"], quiet=True, use_runtime=True)
                 result(tested.returncode == 0, (tested.stdout or tested.stderr).strip())
             elif choice == "4":
-                request = command([sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), "telegram", "pair-request"], quiet=True)
-                if request.returncode != 0: result(False, "Inicie o daemon e habilite o Telegram antes de parear um owner."); continue
-                try: pin = json.loads(request.stdout)["pin"]
-                except (json.JSONDecodeError, KeyError): result(False, "Não foi possível gerar o código de pareamento."); continue
-                result(True, f"Envie /pair {pin} em uma DM para o bot. O código expira em 5 minutos e só pode ser usado uma vez.")
+                request = pairing_request()
+                if request is None:
+                    continue
+                result(True, f"Envie /pair {request['pin']} em uma DM para o bot. O código expira em 5 minutos e só pode ser usado uma vez.")
             elif choice == "6":
                 if totp_enabled:
                     changed = command([sys.executable, str(script), "--onmyoji-root", str(root), "--action", "set-totp"], quiet=True)
@@ -3707,24 +3969,22 @@ def daemon_menu(root: Path) -> None:
         if lifecycle("enable", ["telegram"]):
             result(True, "Gateway Telegram habilitado.")
         else: return
-        if daemon_running():
+        if daemon_active():
             answer = prompt("O daemon está em execução; reiniciar agora para efetivar a alteração? [S/n]: ").strip().casefold()
             if answer not in {"", "s", "sim"}: result(False, "Gateway habilitado, mas pendente de reinício. Execute o wizard novamente após reiniciá-lo."); return
-            restarted = privileged_service_action("service-restart") if service_installed() else (lifecycle("process-stop") and lifecycle("process-start"))
+            restarted = daemon_control("restart")
             if not restarted: return
-        elif not (privileged_service_action("service-start") if service_installed() else lifecycle("process-start")):
+        elif not daemon_control("start"):
             return
         if not wait_for_daemon_ready() or not wait_for_telegram_ready():
             result(False, "O daemon iniciou, mas o gateway Telegram não respondeu em até 15 segundos. Consulte o diagnóstico do Telegram."); return
         result(True, "Gateway Telegram em execução e respondendo.")
 
         print("\n  8. Parear o primeiro owner")
-        request = command([sys.executable, "-m", "onmyoji_daemon.cli", "--onmyoji-root", str(root), "telegram", "pair-request"], quiet=True)
-        if request.returncode != 0:
-            result(False, "Inicie ou reinicie o daemon com o Telegram habilitado antes de parear um owner."); return
-        try: pin = json.loads(request.stdout)["pin"]
-        except (json.JSONDecodeError, KeyError): result(False, "Não foi possível gerar o código de pareamento."); return
-        note(f"Envie /pair {pin} em uma DM para o bot. O código expira em cinco minutos.")
+        request = pairing_request()
+        if request is None:
+            return
+        note(f"Envie /pair {request['pin']} em uma DM para o bot. O código expira em cinco minutos.")
         prompt("Depois de enviar o comando, pressione Enter para verificar o pareamento: ")
         checks = validation()
         owner = next((check for check in checks if check.get("label") == "Owners pareados"), {})
@@ -4167,7 +4427,7 @@ def daemon_menu(root: Path) -> None:
             if not installed():
                 result(False, "Prepare o daemon em 'Validar runtime do daemon' e execute este wizard novamente."); return
             if prompt("Iniciar o daemon agora para configurar a publicação? [S/n]: ").strip().casefold() not in {"", "s", "sim"}: return
-            if not (privileged_service_action("service-start") if service_installed() else lifecycle("process-start")) or not wait_for_daemon_ready():
+            if not daemon_control("start") or not wait_for_daemon_ready():
                 result(False, "O daemon não respondeu. Consulte o diagnóstico (!)."); return
         registered = publication_command("list-services")
         try: names = {item["name"] for item in json.loads(registered.stdout or "[]") if isinstance(item, dict) and "name" in item}
@@ -4436,9 +4696,10 @@ def menu(skills: list[Skill], root: Path) -> int:
         print()
         item("G.", "Git e sincronização", "Origin da instância, upstream do Onmyōji e regras de merge")
         item("P.", "Python e bibliotecas", "Runtime único e componentes compartilhados")
+        item("K.", "KeePass", "Cofres e credenciais compartilhados do Onmyōji")
         item("C.", "Codex-CLI", "Modelo, projeto, sandbox e permissões")
         item("D.", "Daemon", "Supervisor local e serviços da instância")
-        item("M.", "MCP", "Perfis de vault e integrações MCP")
+        item("M.", "MCP", "Perfis e integrações MCP")
         conflicts = conflicting_skill_ids(skills)
         enabled = enabled_ids(root, skills)
         def rendered(index: int, skill: Skill, width: int = 50) -> str:
@@ -4468,16 +4729,19 @@ def menu(skills: list[Skill], root: Path) -> int:
         if choice == "c":
             if not run_dedicated_menu(root, "codex"): codex_menu(root)
             continue
+        if choice == "k":
+            launch_keepass_menu(root)
+            continue
         if choice == "d": daemon_menu(root); continue
         if choice == "m":
-            if not run_dedicated_menu(root, "mcp"): launch_mcp_menu(root)
+            launch_mcp_menu(root)
             continue
         if choice.isdigit() and 1 <= int(choice) <= len(skills): skill_menu(skills[int(choice) - 1], root, skills)
         else: alert("Opção inválida. Escolha uma das alternativas ou cancele.")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(); parser.add_argument("--action", choices=["menu", "list", "enable", "disable", "configure", "status"], default="menu"); parser.add_argument("--skill"); parser.add_argument("--json", action="store_true"); parser.add_argument("--dedicated-phase", action="store_true", help=argparse.SUPPRESS); parser.add_argument("--dedicated-menu", choices=["diagnostics", "git", "python", "codex", "mcp"], help=argparse.SUPPRESS); parser.add_argument("--dedicated-checks", action="store_true", help=argparse.SUPPRESS); parser.add_argument("--resume-after-update", action="store_true", help=argparse.SUPPRESS); parser.add_argument("--restart-daemon-after-update", action="store_true", help=argparse.SUPPRESS); args = parser.parse_args()
+    parser = argparse.ArgumentParser(); parser.add_argument("--action", choices=["menu", "list", "enable", "disable", "configure", "status"], default="menu"); parser.add_argument("--skill"); parser.add_argument("--json", action="store_true"); parser.add_argument("--dedicated-phase", action="store_true", help=argparse.SUPPRESS); parser.add_argument("--dedicated-menu", choices=["diagnostics", "git", "python", "codex", "keepass", "mcp"], help=argparse.SUPPRESS); parser.add_argument("--dedicated-checks", action="store_true", help=argparse.SUPPRESS); parser.add_argument("--resume-after-update", action="store_true", help=argparse.SUPPRESS); parser.add_argument("--restart-daemon-after-update", action="store_true", help=argparse.SUPPRESS); parser.add_argument("--update-service-sudo", action="store_true", help=argparse.SUPPRESS); args = parser.parse_args()
     if args.action == "menu" and not (args.dedicated_phase or args.dedicated_menu or args.dedicated_checks or args.resume_after_update): opening_logo()
     migrated, migration_message = verify_state_layout(ROOT)
     if not migrated:
@@ -4487,7 +4751,7 @@ def main() -> int:
     if args.resume_after_update:
         note(migration_message)
     if args.restart_daemon_after_update:
-        ok, message = daemon_management.start_background(ROOT)
+        ok, message = _resume_updated_daemon(ROOT, use_sudo=args.update_service_sudo)
         result(ok, "Daemon reiniciado após a atualização." if ok else "A migração foi concluída, mas o daemon não foi reiniciado: " + message)
     system, message = ensure_shikigami_configuration(ROOT)
     if system is None:
@@ -4518,7 +4782,8 @@ def main() -> int:
         elif args.dedicated_menu == "git": git_menu(ROOT)
         elif args.dedicated_menu == "python": python_menu(ROOT)
         elif args.dedicated_menu == "codex": codex_menu(ROOT)
-        else: launch_mcp_menu(ROOT)
+        elif args.dedicated_menu == "keepass": return 0 if launch_keepass_menu(ROOT) else 2
+        else: return 0 if launch_mcp_menu(ROOT) else 2
         return 0
     skills = discover(); conflicts = conflicting_skill_ids(skills); by_id = {skill.identifier: skill for skill in skills if skill.identifier not in conflicts}
     initialized, initialization_message = ensure_skill_state(ROOT, skills)
