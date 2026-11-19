@@ -32,6 +32,8 @@ Omie:
 - **Vínculo título–lançamento:** no lançamento financeiro, `diversos.nCodLancCP` referencia o título a pagar e `diversos.nCodLancCR` referencia o título a receber. Use esses campos para rastrear o lançamento financeiro equivalente a um título.
 
 - **Baixa / pagamento / recebimento:** é o evento que liquida o título. Não trate campos vazios de pagamento no retorno do título como prova de ausência de baixa. Confirme sempre o lançamento financeiro vinculado em `omie.financeiro.lancamentos_conta.consultar`.
+	- A baixa ou recebimento e o lançamento financeiro vinculado devem ter exatamente a mesma data e o mesmo valor. Antes de concluir uma inclusão, alteração ou correção, confirme o vínculo e compare título, evento de quitação e lançamento financeiro.
+	- Não altere isoladamente um título, uma baixa/recebimento ou um lançamento financeiro vinculado. Para corrigir data, valor, conta ou outro dado relacionado, cancele a baixa ou recebimento, altere o título enquanto estiver em aberto e registre novamente o evento; ao final, confira a equivalência entre os objetos.
 
 - **Lista de movimentos:** os métodos `omie.financeiro.movimentos.listar_por_inclusao`, `omie.financeiro.movimentos.listar_por_alteracao`, `omie.financeiro.movimentos.listar_por_pagamento`, `omie.financeiro.movimentos.listar_por_vencimento` e `omie.financeiro.movimentos.listar_por_previsao` são consultas auxiliares por data e podem retornar dados resumidos de títulos e baixas. Não os use isoladamente para identificar o lançamento financeiro da conta; confirme-o em `omie.financeiro.lancamentos_conta.consultar`.
 

@@ -13,6 +13,9 @@ Regras dos lançamentos financeiros.
   - `not_validated`: a tabela não impõe validação ao campo.
 - Se não houver regra cadastrada para a categoria, ou se `usage_scope` não for suficiente para confirmar a categoria, o agente deve solicitar orientação ao usuário antes de criar o lançamento.
 - **Lançamentos Financeiros** vinculados a **Títulos de Pagamento/Recebimento** devem ter seus valores coerentes com os pagamentos/liquidações desses títulos.
+	- Para um lançamento financeiro vinculado a título, o valor e a data devem ser exatamente iguais aos da respectiva baixa ou recebimento. Não basta que sejam coerentes.
+	- Antes de criar, validar ou alterar esse lançamento, consulte o título e confirme o vínculo. Não crie, altere ou mantenha lançamento financeiro vinculado que deixe valor ou data divergentes.
+	- Caso seja necessária qualquer correção no lançamento, no título ou na quitação, cancele primeiro a baixa ou recebimento, faça a alteração com o título em aberto e registre novamente o evento com os dados corretos. Confirme os valores, a data e o vínculo ao final.
 - **Lançamentos Financeiros** relacionados a Notas fiscais não devem ser criados 'soltos'. Devem sempre seguir o relacionamento: Entrada da Nota -> Título de Contas a Pagar -> Quitação da Conta com Lançamento Financeiro.
 - O campo número de documento só pode ser utilizado para número de NFe, Fatura, e outros números até 20 caracteres. Códigos de barra e representação numéricas de Boleto e outras guias devem ser salvas no campo de observações.
 

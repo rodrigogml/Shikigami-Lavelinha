@@ -72,6 +72,7 @@ As **Movimentações Financeiras** são categorizadas da seguinte forma para org
 	**Sistema**  [#A linhas a seguir se repete para cada lançamento financeiro do sistema utilizado ou sugerido para conciliar a movimentação financeira]
 		- [Data] - [Valor] - [C|NC para indicar respectivamente se já conciliado ou não] - [Outros detalhes e observações, quando necessário, que justificam a escolha]	
 	```	
+	- Para corrigir uma quitação vinculada a título, não altere isoladamente o lançamento financeiro. Cancele a baixa ou recebimento, altere o título enquanto estiver aberto e registre novamente a quitação com a mesma data e o mesmo valor do lançamento financeiro. Antes de seguir a conciliação, confirme o vínculo e a equivalência entre título, quitação e lançamento.
 
 4. Para os casos de Erros e Sem correspondência, deve ser realizada uma busca de referências no sistema para entender e sugerir a melhor opção de solução de conciliação. Os passos a serem seguidos são:
 	1. Procurar nos últimos 90 dias para considerar lançamentos similares em categoria, contraparte, descrição que possam dar pistas de como criar esse lançamento;
